@@ -123,6 +123,7 @@
             font-size: 14px;
             transition: all 0.2s ease;
             white-space: nowrap;
+            will-change: transform;
         }
 
         .btn:active {
@@ -439,6 +440,7 @@
             height: 40px;
             animation: spin 1s linear infinite;
             margin: 0 auto 16px;
+            will-change: transform;
         }
 
         @keyframes spin {
@@ -1125,6 +1127,20 @@
         var lastNFInformada = null; // para repassar valor NF após salvar e recarregar
         var baseUrl = <?!= (typeof baseUrl !== 'undefined' && baseUrl) ? ("'" + String(baseUrl).replace(/'/g, "\\'") + "'") : "null" ?>;
         const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyqo2sqE_x5VhtQPInTBS4XO78vk-S0Ec2LbgDtbUYVyX98oOA_oh4VRMdrmk8DBWvx6g/exec";
+
+        // --- Cached stable DOM references (elements that persist across table re-renders) ---
+        var _elSearchInput       = document.getElementById('searchInput');
+        var _elStatusOrcFilter   = document.getElementById('statusOrcFilter');
+        var _elStatusPedFilter   = document.getElementById('statusPedFilter');
+        var _elTableContainer    = document.getElementById('tableContainer');
+        var _elNfFilterGroup     = document.getElementById('nfFilterGroup');
+        var _elEntregaFilterGroup = document.getElementById('entregaFilterGroup');
+
+        // Debounce utility — delays fn execution until ms milliseconds after the last call
+        function debounce(fn, ms) {
+            var t;
+            return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+        }
         function pageUrl(page, qs) { if (baseUrl) return (baseUrl.replace(/\/$/, '') + '/' + page + '.html?' + (qs || '')).replace(/\?$/, ''); return WEBAPP_URL + '?page=' + page + (qs ? '&' + qs : ''); }
         function voltarPagina() {
             if (!token) {
@@ -1172,6 +1188,37 @@
         // Lista completa de clientes (para preencher CPF, endereço, email ao selecionar)
         var listaClientes = [];
 
+        // Lazy cache for the Novo Projeto Rápido modal form fields
+        var _rpf = null;
+        function getRpf() {
+            if (!_rpf) {
+                _rpf = {
+                    modal:               document.getElementById('novoProjetoRapidoModal'),
+                    cliente:             document.getElementById('rapidoCliente'),
+                    clienteNomeAbreviado:document.getElementById('rapidoClienteNomeAbreviado'),
+                    clienteCpf:          document.getElementById('rapidoClienteCpf'),
+                    clienteEndereco:     document.getElementById('rapidoClienteEndereco'),
+                    clienteTelefone:     document.getElementById('rapidoClienteTelefone'),
+                    clienteEmail:        document.getElementById('rapidoClienteEmail'),
+                    projeto:             document.getElementById('rapidoProjeto'),
+                    descricao:           document.getElementById('rapidoDescricao'),
+                    responsavel:         document.getElementById('rapidoResponsavel'),
+                    processos:           document.getElementById('rapidoProcessos'),
+                    prazoProposta:       document.getElementById('rapidoPrazoProposta'),
+                    prazoEntrega:        document.getElementById('rapidoPrazoEntrega'),
+                    vendedor:            document.getElementById('rapidoVendedor'),
+                    materialCond:        document.getElementById('rapidoMaterialCond'),
+                    pagamento:           document.getElementById('rapidoPagamento'),
+                    obsCliente:          document.getElementById('rapidoObsCliente'),
+                    obsInternas:         document.getElementById('rapidoObsInternas'),
+                    temNotaFiscal:       document.getElementById('rapidoTemNotaFiscal'),
+                    arquivos:            document.getElementById('rapidoArquivos'),
+                    btnSalvar:           document.getElementById('rapidoBtnSalvar')
+                };
+            }
+            return _rpf;
+        }
+
         // Carrega a lista de clientes
         function loadClientes() {
             try {
@@ -1202,16 +1249,17 @@
         // Preenche CPF, endereço, telefone, email no modal rápido quando seleciona um cliente existente
         function preencherDadosClienteRapido(cliente) {
             if (!cliente) return;
-            document.getElementById('rapidoClienteNomeAbreviado').value = cliente.nomeAbreviado || '';
-            document.getElementById('rapidoClienteCpf').value = cliente.cpf || '';
-            document.getElementById('rapidoClienteEndereco').value = cliente.endereco || '';
-            document.getElementById('rapidoClienteTelefone').value = cliente.telefone || '';
-            document.getElementById('rapidoClienteEmail').value = cliente.email || '';
+            var f = getRpf();
+            f.clienteNomeAbreviado.value = cliente.nomeAbreviado || '';
+            f.clienteCpf.value           = cliente.cpf || '';
+            f.clienteEndereco.value      = cliente.endereco || '';
+            f.clienteTelefone.value      = cliente.telefone || '';
+            f.clienteEmail.value         = cliente.email || '';
         }
 
         // Configura preenchimento automático do cliente no modal Novo Projeto
         function setupRapidoClienteAutocomplete() {
-            var inp = document.getElementById('rapidoCliente');
+            var inp = getRpf().cliente;
             if (!inp) return;
             inp.addEventListener('input', function () {
                 var val = (this.value || '').trim();
@@ -1266,7 +1314,7 @@
                     })
                     .withFailureHandler(function (error) {
                         console.error('getProjetos failure:', error);
-                        document.getElementById('tableContainer').innerHTML = `
+                        _elTableContainer.innerHTML = `
               <div class="empty-state">
                 <div class="empty-state-icon">⚠️</div>
                 <div>Erro ao carregar projetos: ${error.message || error}</div>
@@ -1285,9 +1333,9 @@
         // Renderiza a tabela
         function renderTable() {
             console.log('renderTable: projetos.length=', projetos.length);
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const statusOrc = document.getElementById('statusOrcFilter').value;
-            const statusPed = document.getElementById('statusPedFilter').value;
+            const searchTerm = _elSearchInput.value.toLowerCase();
+            const statusOrc = _elStatusOrcFilter.value;
+            const statusPed = _elStatusPedFilter.value;
             const nfFilterSelected = (typeof getNfFilterSelected === 'function') ? getNfFilterSelected() : [];
             const entregaFilterSelected = Array.from(document.querySelectorAll('.filter-entrega-cb:checked')).map(cb => cb.value);
             var fc = window.columnFilters['filterColCliente']; var filtroCliente = (fc != null ? fc : (document.getElementById('filterColCliente') && document.getElementById('filterColCliente').value) || '').toString().toLowerCase();
@@ -1495,7 +1543,7 @@
         </div>
       `;
 
-            document.getElementById('tableContainer').innerHTML = html;
+            _elTableContainer.innerHTML = html;
         }
 
         // Atualizar status
@@ -1589,6 +1637,7 @@
                         document.getElementById('ordemCompraEmpty').style.display = 'block';
                         document.querySelector('#ordemCompraModal .table-wrapper').style.display = 'none';
                     } else {
+                        var ocFrag = document.createDocumentFragment();
                         ordemCompraItens.forEach(function (item, idx) {
                             var tr = document.createElement('tr');
                             tr.innerHTML =
@@ -1598,8 +1647,9 @@
                                 '<td style="text-align:center"><input type="number" class="oc-qtd" data-idx="' + idx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="1" style="width:70px; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>' +
                                 '<td><input type="text" class="oc-valor" data-idx="' + idx + '" placeholder="0,00" inputmode="decimal" style="width:100%; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px;"></td>' +
                                 '<td><label><input type="radio" name="oc-tipo-' + idx + '" value="unit" checked> Unit.</label> <label><input type="radio" name="oc-tipo-' + idx + '" value="total"> Total</label></td>';
-                            document.getElementById('ordemCompraLista').appendChild(tr);
+                            ocFrag.appendChild(tr);
                         });
+                        document.getElementById('ordemCompraLista').appendChild(ocFrag);
                     }
                     document.getElementById('ordemCompraBtnGerar').disabled = false;
                 })
@@ -2062,17 +2112,15 @@
         }
 
         // Event listeners para filtros
-        document.getElementById('searchInput').addEventListener('input', renderTable);
-        document.getElementById('statusOrcFilter').addEventListener('change', renderTable);
-        document.getElementById('statusPedFilter').addEventListener('change', renderTable);
-        var nfFilterGroup = document.getElementById('nfFilterGroup');
-        if (nfFilterGroup) nfFilterGroup.addEventListener('change', renderTable);
+        _elSearchInput.addEventListener('input', debounce(renderTable, 200));
+        _elStatusOrcFilter.addEventListener('change', renderTable);
+        _elStatusPedFilter.addEventListener('change', renderTable);
+        if (_elNfFilterGroup) _elNfFilterGroup.addEventListener('change', renderTable);
         // RF004: Event listener para filtro de entrega
-        var entregaFilterGroup = document.getElementById('entregaFilterGroup');
-        if (entregaFilterGroup) entregaFilterGroup.addEventListener('change', renderTable);
+        if (_elEntregaFilterGroup) _elEntregaFilterGroup.addEventListener('change', renderTable);
 
         // Filtros por coluna: delegar input/change no container para não perder referência ao re-render
-        document.getElementById('tableContainer').addEventListener('input', function (e) {
+        _elTableContainer.addEventListener('input', function (e) {
             if (e.target.id && e.target.id.startsWith('filterCol')) {
                 var id = e.target.id;
                 window.columnFilters[id] = e.target.value;
@@ -2087,7 +2135,7 @@
                 }
             }
         });
-        document.getElementById('tableContainer').addEventListener('change', function (e) {
+        _elTableContainer.addEventListener('change', function (e) {
             if (e.target.id && e.target.id.startsWith('filterCol')) {
                 var id = e.target.id;
                 window.columnFilters[id] = e.target.value;
@@ -2118,61 +2166,63 @@
             return String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
         }
         function openNovoProjetoRapidoModal() {
-            document.getElementById('novoProjetoRapidoModal').classList.add('active');
-            document.getElementById('rapidoCliente').value = '';
-            document.getElementById('rapidoCliente').style.background = '';
-            document.getElementById('rapidoClienteNomeAbreviado').value = '';
-            document.getElementById('rapidoClienteCpf').value = '';
-            document.getElementById('rapidoClienteEndereco').value = '';
-            document.getElementById('rapidoClienteTelefone').value = '';
-            document.getElementById('rapidoClienteEmail').value = '';
-            document.getElementById('rapidoProjeto').value = '...';
-            document.getElementById('rapidoDescricao').value = '';
-            document.getElementById('rapidoResponsavel').value = '';
-            document.getElementById('rapidoProcessos').value = '';
-            document.getElementById('rapidoPrazoProposta').value = '';
-            document.getElementById('rapidoPrazoEntrega').value = '';
-            document.getElementById('rapidoVendedor').value = ''; // será preenchido com o nome do usuário logado
-            document.getElementById('rapidoMaterialCond').value = 'Incluso';
-            document.getElementById('rapidoPagamento').value = '';
-            document.getElementById('rapidoObsCliente').value = '';
-            document.getElementById('rapidoObsInternas').value = '';
-            document.getElementById('rapidoTemNotaFiscal').checked = false;
-            document.getElementById('rapidoArquivos').value = '';
+            var f = getRpf();
+            f.modal.classList.add('active');
+            f.cliente.value = '';
+            f.cliente.style.background = '';
+            f.clienteNomeAbreviado.value = '';
+            f.clienteCpf.value = '';
+            f.clienteEndereco.value = '';
+            f.clienteTelefone.value = '';
+            f.clienteEmail.value = '';
+            f.projeto.value = '...';
+            f.descricao.value = '';
+            f.responsavel.value = '';
+            f.processos.value = '';
+            f.prazoProposta.value = '';
+            f.prazoEntrega.value = '';
+            f.vendedor.value = ''; // será preenchido com o nome do usuário logado
+            f.materialCond.value = 'Incluso';
+            f.pagamento.value = '';
+            f.obsCliente.value = '';
+            f.obsInternas.value = '';
+            f.temNotaFiscal.checked = false;
+            f.arquivos.value = '';
             var dataYYMMDD = dataHojeYYMMDD();
             google.script.run
                 .withSuccessHandler(function (user) {
                     var iniciais = (user && user.iniciais) ? user.iniciais.trim() : '';
                     if (user && user.usuario) {
-                        document.getElementById('rapidoVendedor').value = user.usuario;
+                        f.vendedor.value = user.usuario;
                     }
                     if (!iniciais) {
-                        document.getElementById('rapidoProjeto').value = dataYYMMDD + 'a??';
+                        f.projeto.value = dataYYMMDD + 'a??';
                         return;
                     }
                     google.script.run
                         .withSuccessHandler(function (proximoIndice) {
                             var indice = proximoIndice || 'a';
-                            document.getElementById('rapidoProjeto').value = dataYYMMDD + indice + iniciais;
+                            f.projeto.value = dataYYMMDD + indice + iniciais;
                         })
                         .withFailureHandler(function () {
-                            document.getElementById('rapidoProjeto').value = dataYYMMDD + 'a' + iniciais;
+                            f.projeto.value = dataYYMMDD + 'a' + iniciais;
                         })
                         .detectarProximoIndice(dataYYMMDD, iniciais);
                 })
                 .withFailureHandler(function () {
-                    document.getElementById('rapidoProjeto').value = dataYYMMDD + 'a??';
+                    f.projeto.value = dataYYMMDD + 'a??';
                 })
                 .getUsuarioLogadoPorToken(token);
         }
         function closeNovoProjetoRapidoModal() {
-            document.getElementById('novoProjetoRapidoModal').classList.remove('active');
+            getRpf().modal.classList.remove('active');
         }
         function salvarNovoProjetoRapido(event) {
             event.preventDefault();
-            var cliente = (document.getElementById('rapidoCliente').value || '').trim();
-            var projetoNum = (document.getElementById('rapidoProjeto').value || '').trim();
-            var descricao = (document.getElementById('rapidoDescricao').value || '').trim();
+            var f = getRpf();
+            var cliente = (f.cliente.value || '').trim();
+            var projetoNum = (f.projeto.value || '').trim();
+            var descricao = (f.descricao.value || '').trim();
             if (!cliente || !descricao) {
                 alert('Preencha Cliente e Descrição.');
                 return;
@@ -2185,28 +2235,28 @@
                 alert('A descrição não pode conter COT ou PED (reservadas pelo sistema).');
                 return;
             }
-            var obsInternas = (document.getElementById('rapidoObsInternas').value || '').trim();
-            var obsCliente = (document.getElementById('rapidoObsCliente').value || '').trim();
+            var obsInternas = (f.obsInternas.value || '').trim();
+            var obsCliente = (f.obsCliente.value || '').trim();
             var dadosObservacoes = {
-                prazoProposta: (document.getElementById('rapidoPrazoProposta').value || '').trim(),
-                prazo: (document.getElementById('rapidoPrazoEntrega').value || '').trim(),
-                vendedor: (document.getElementById('rapidoVendedor').value || '').trim(),
-                materialCond: (document.getElementById('rapidoMaterialCond').value || '').trim(),
-                pagamento: (document.getElementById('rapidoPagamento').value || '').trim(),
+                prazoProposta: (f.prazoProposta.value || '').trim(),
+                prazo: (f.prazoEntrega.value || '').trim(),
+                vendedor: (f.vendedor.value || '').trim(),
+                materialCond: (f.materialCond.value || '').trim(),
+                pagamento: (f.pagamento.value || '').trim(),
                 adicional: obsCliente,
                 observacoesKanban: obsInternas,
                 projeto: projetoNum,
                 descricao: descricao,
-                temNotaFiscal: document.getElementById('rapidoTemNotaFiscal').checked
+                temNotaFiscal: f.temNotaFiscal.checked
             };
             var clienteObj = {
                 nome: cliente,
-                nomeAbreviado: (document.getElementById('rapidoClienteNomeAbreviado').value || '').trim(),
-                cpf: (document.getElementById('rapidoClienteCpf').value || '').trim(),
-                endereco: (document.getElementById('rapidoClienteEndereco').value || '').trim(),
-                telefone: (document.getElementById('rapidoClienteTelefone').value || '').trim(),
-                email: (document.getElementById('rapidoClienteEmail').value || '').trim(),
-                responsavel: (document.getElementById('rapidoResponsavel').value || '').trim()
+                nomeAbreviado: (f.clienteNomeAbreviado.value || '').trim(),
+                cpf: (f.clienteCpf.value || '').trim(),
+                endereco: (f.clienteEndereco.value || '').trim(),
+                telefone: (f.clienteTelefone.value || '').trim(),
+                email: (f.clienteEmail.value || '').trim(),
+                responsavel: (f.responsavel.value || '').trim()
             };
             var dadosJson = JSON.stringify({
                 nome: projetoNum,
@@ -2223,10 +2273,10 @@
                 CLIENTE: cliente,
                 PROJETO: projetoNum,
                 'DESCRIÇÃO': descricao,
-                'RESPONSÁVEL CLIENTE': (document.getElementById('rapidoResponsavel').value || '').trim(),
+                'RESPONSÁVEL CLIENTE': (f.responsavel.value || '').trim(),
                 'VALOR TOTAL': '',
                 DATA: dataHojeBr(),
-                PROCESSOS: (document.getElementById('rapidoProcessos').value || '').trim(),
+                PROCESSOS: (f.processos.value || '').trim(),
                 'LINK DO PDF': '',
                 'LINK DA MEMÓRIA DE CÁLCULO': '',
                 PRAZO_PROPOSTA: dadosObservacoes.prazoProposta,
@@ -2236,7 +2286,7 @@
                 STATUS_PEDIDO: '',
                 JSON_DADOS: dadosJson
             };
-            var btn = document.getElementById('rapidoBtnSalvar');
+            var btn = f.btnSalvar;
             btn.disabled = true;
             btn.textContent = 'Criando...';
             // Cadastra cliente novo na planilha de clientes (cpf, endereço, telefone, email) antes de criar o projeto
