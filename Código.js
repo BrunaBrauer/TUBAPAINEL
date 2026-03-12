@@ -325,10 +325,56 @@ function atualizarPRDNoCatalogo(dadosNovos) {
 }
 
 
-// Formata número BR (R$) (mesma lógica que você tinha)
-function _formatBR(n) {
-  const num = Number(n) || 0;
-  const parts = num.toFixed(2).split('.');
+/**
+ * Escapes HTML special characters.
+ * @param {*} v
+ * @returns {string}
+ */
+function _escHtml(v) {
+  if (v === null || v === undefined) return "";
+  return String(v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Parses a Brazilian date string (dd/mm/yyyy) to a Date object.
+ * @param {string} s
+ * @returns {Date|null}
+ */
+function _parseBrDate(s) {
+  if (!s) return null;
+  var m = (s + "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    var d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/**
+ * Formats a Date object as a Brazilian date string (dd/mm/yyyy).
+ * @param {Date} d
+ * @returns {string}
+ */
+function _formatBrDate(d) {
+  if (!d || !d.getDate) return "";
+  var dd = ("0" + d.getDate()).slice(-2);
+  var mm = ("0" + (d.getMonth() + 1)).slice(-2);
+  return dd + "/" + mm + "/" + d.getFullYear();
+}
+
+/**
+ * Formats a number as Brazilian currency (R$).
+ * @param {*} n
+ * @returns {string}
+ */
+function _formatBrCurrency(n) {
+  var num = Number(n) || 0;
+  var parts = num.toFixed(2).split('.');
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return "R$ " + parts[0] + ',' + parts[1];
 }
@@ -635,28 +681,6 @@ function detectarPastaExistente(codigoProjeto, data) {
 }
 
 /**
- * Atualiza o nome da pasta mantendo o prefixo atual (COT ou PED)
- * @param {Folder} pasta - Pasta a ser renomeada
- * @param {string} codigoProjeto - Código do projeto
- * @param {string} nomeCliente - Nome do cliente
- * @param {string} descricao - Descrição do projeto
- */
-function atualizarNomePasta(pasta, codigoProjeto, nomeCliente, descricao) {
-  try {
-    const nomeAtual = pasta.getName();
-    const isPedido = nomeAtual.includes(" PED ");
-    const novoNome = gerarNomePasta(codigoProjeto, nomeCliente, descricao, isPedido);
-    
-    if (nomeAtual !== novoNome) {
-      pasta.setName(novoNome);
-      Logger.log("Pasta renomeada de '" + nomeAtual + "' para '" + novoNome + "'");
-    }
-  } catch (e) {
-    Logger.log("Erro ao atualizar nome da pasta: " + e.message);
-  }
-}
-
-/**
  * Renomeia a pasta do projeto no Drive quando a descrição ou o cliente é alterado (ex.: pela página de projetos).
  * @param {string} codigoProjeto - Código do projeto
  * @param {string} data - Data no formato YYMMDD (primeiros 6 caracteres do código)
@@ -804,28 +828,6 @@ function criarOuUsarPasta(codigoProjeto, nomePasta, data) {
   // Cria nova pasta usando estrutura PROJ
   // isPedido = false (COT) por padrão para compatibilidade
   return criarOuUsarPastaProjeto(codigoProjeto, "", descricao, data, false);
-}
-
-function buscarNomePastaPorCodigo(codigoProjeto) {
-  const ano = codigoProjeto.slice(0, 2);
-  const mes = codigoProjeto.slice(0, 4);
-  const dia = codigoProjeto.slice(0, 6);
-  
-  try {
-    // Tenta detectar pasta usando nova função
-    const pastaInfo = detectarPastaExistente(codigoProjeto, dia);
-    if (pastaInfo) {
-      const nomePasta = pastaInfo.pasta.getName();
-      // Remove o código e o prefixo (COT ou PED) para retornar apenas a parte customizada
-      const prefixo = pastaInfo.tipo === "PED" ? " PED " : " COT ";
-      const nomeCustomizado = nomePasta.replace(codigoProjeto + prefixo, "");
-      return nomeCustomizado;
-    }
-    return "";
-  } catch (e) {
-    Logger.log("Erro ao buscar nome da pasta: " + e.message);
-    return "";
-  }
 }
 
 /**
@@ -1127,81 +1129,6 @@ function buscarPastaOrcamento(codigoProjeto, data) {
   };
 }
 
-// Recebe arquivos enviados pelo formulário e salva dentro da pasta 01_IN do projeto.
-// A pasta do projeto é criada/obtida usando a mesma lógica do orçamento calculado.
-// IMPORTANTE: Quando há file inputs, o formulário deve ser o único parâmetro.
-// Os dados do projeto (codigoProjeto, nomePasta, data) vêm em campos hidden do formulário.
-function salvarArquivosCliente(formObject) {
-  if (!formObject) {
-    throw new Error("Formulário inválido ao salvar arquivos do cliente.");
-  }
-
-  // Extrai dados do projeto dos campos hidden do formulário
-  const codigoProjeto = formObject.codigoProjeto || "";
-  const nomePasta = formObject.nomePasta || "";
-  const data = formObject.dataProjeto || "";
-
-  if (!codigoProjeto || !data) {
-    throw new Error("Dados do projeto incompletos para salvar arquivos (código ou data ausentes). Verifique se os campos do projeto estão preenchidos.");
-  }
-
-  const pastaProjeto = criarOuUsarPasta(codigoProjeto, nomePasta || "", data);
-  const inFolder = getOrCreateSubFolder(pastaProjeto, "01_IN");
-
-  // Campo de arquivos no formulário (name="arquivosCliente")
-  let arquivos = formObject.arquivosCliente;
-  if (!arquivos) {
-    // Nada para salvar
-    return {
-      ok: true,
-      quantidade: 0,
-      pastaNome: pastaProjeto.getName(),
-      inFolderNome: inFolder.getName(),
-      arquivos: []
-    };
-  }
-
-  // Garante que seja um array
-  if (!Array.isArray(arquivos)) {
-    arquivos = [arquivos];
-  }
-
-  const salvos = [];
-
-  arquivos.forEach(function (blob) {
-    if (!blob) return;
-
-    // Mantém o nome original do arquivo, se disponível
-    let nomeArquivo = "";
-    try {
-      if (typeof blob.getName === "function") {
-        nomeArquivo = blob.getName();
-      }
-    } catch (e) {
-      // fallback silencioso
-    }
-
-    const file = inFolder.createFile(blob);
-    if (nomeArquivo && file.getName() !== nomeArquivo) {
-      file.setName(nomeArquivo);
-    }
-
-    salvos.push({
-      id: file.getId(),
-      nome: file.getName(),
-      url: file.getUrl()
-    });
-  });
-
-  return {
-    ok: true,
-    quantidade: salvos.length,
-    pastaNome: pastaProjeto.getName(),
-    inFolderNome: inFolder.getName(),
-    arquivos: salvos
-  };
-}
-
 // Salva UM único arquivo na pasta 01_IN. Usado quando o cliente envia múltiplos arquivos.
 // O cliente NÃO pode enviar File/Blob pelo google.script.run (erro "illegal value in property"),
 // então envia fileData: { base64: string, name: string, mimeType: string }.
@@ -1404,24 +1331,6 @@ function gerarPdfOrcamento(
     const headerColor = "#FF9933"; // cabeçalho (laranja médio)
     const rowColor = "#FDF5E6";    // linhas / totais (laranja claro)
 
-    // helpers
-    function esc(v) {
-      if (v === null || v === undefined) return "";
-      return String(v)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
-    function formatBR(n) {
-      const num = Number(n) || 0;
-      const parts = num.toFixed(2).split('.');
-      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-      return "R$ " + parts[0] + ',' + parts[1];
-    }
-
     // Calcula parcelas baseado no texto de pagamento.
     // Suporta: "30/60/90" (dias), "Á Vista / 30 / 45", ou "70% no pedido, 30% na entrega" (percentuais por condição).
     function calcularParcelas(textoPagamento, valorTotal) {
@@ -1485,11 +1394,11 @@ function gerarPdfOrcamento(
     const itensHtml = resultados.map(function (p) {
       return ''
         + '<tr>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:7pt;">' + esc(p.codigo || "") + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:7pt;">' + esc(p.descricao || "") + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + esc(p.quantidade || 0) + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + formatBR(p.precoUnitario || 0) + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + formatBR(p.precoTotal || 0) + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:7pt;">' + _escHtml(p.codigo || "") + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:7pt;">' + _escHtml(p.descricao || "") + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _escHtml(p.quantidade || 0) + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _formatBrCurrency(p.precoUnitario || 0) + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _formatBrCurrency(p.precoTotal || 0) + '</td>'
         + '</tr>';
     }).join('');
 
@@ -1515,14 +1424,14 @@ function gerarPdfOrcamento(
         var descricaoLinha = (proc.descricao || "").trim();
         if (!descricaoLinha) descricaoLinha = tipo === "desconto" ? "Desconto" : "Custo extra";
         processosPedidoRow += '<tr>'
-          + '<td colspan="4" bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + esc(descricaoLinha) + '</td>'
-          + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + formatBR(valor) + '</td>'
+          + '<td colspan="4" bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _escHtml(descricaoLinha) + '</td>'
+          + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _formatBrCurrency(valor) + '</td>'
           + '</tr>';
       });
     } else if (somaProcessosPedido && Number(somaProcessosPedido) !== 0) {
       processosPedidoRow = '<tr>'
-        + '<td colspan="4" bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;"><strong>' + esc(descricaoProcessosPedido || "") + '</strong></td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + formatBR(somaProcessosPedido) + '</td>'
+        + '<td colspan="4" bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;"><strong>' + _escHtml(descricaoProcessosPedido || "") + '</strong></td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:right; font-size:7pt;">' + _formatBrCurrency(somaProcessosPedido) + '</td>'
         + '</tr>';
     }
 
@@ -1554,7 +1463,7 @@ function gerarPdfOrcamento(
         <tr>
           <td bgcolor="${rowColor}" style="background:${rowColor}; padding:2px; border:0.1px solid #fff; font-size:7pt; text-align:center;">${p.numero}/${parcelas.length}</td>
           <td bgcolor="${rowColor}" style="background:${rowColor}; padding:2px; border:0.1px solid #fff; font-size:7pt; text-align:center;">${celulaSegundaCol(p)}</td>
-          <td bgcolor="${rowColor}" style="background:${rowColor}; padding:2px; border:0.1px solid #fff; font-size:7pt; text-align:center;">${formatBR(p.valor)}</td>
+          <td bgcolor="${rowColor}" style="background:${rowColor}; padding:2px; border:0.1px solid #fff; font-size:7pt; text-align:center;">${_formatBrCurrency(p.valor)}</td>
         </tr>
       `).join('')}
     </table>
@@ -1593,18 +1502,18 @@ function gerarPdfOrcamento(
           </div>
         </div>
 
-        <h2>Proposta Comercial Nº ${esc(numeroProposta)}</h2><br>
+        <h2>Proposta Comercial Nº ${_escHtml(numeroProposta)}</h2><br>
         <h2><strong>Orçamento Nº ${numeroSequencial}</strong></h2>
         </p>
 
         <h3>Informações do Cliente:</h3>
         <p style="margin-bottom:12px; font-size:9pt; line-height:1.3;">
-          <p><strong>${esc(cliente.nome)}</strong><br></p>
-            CNPJ/CPF: ${esc(cliente.cpf)}<br>
-            ${esc(cliente.endereco)}<br>
-            <b>Telefone:</b> ${esc(cliente.telefone)}<br>
-            <b>Email:</b> ${esc(cliente.email)}<br>
-            <b>Responsável:</b> ${esc(cliente.responsavel || "-")}
+          <p><strong>${_escHtml(cliente.nome)}</strong><br></p>
+            CNPJ/CPF: ${_escHtml(cliente.cpf)}<br>
+            ${_escHtml(cliente.endereco)}<br>
+            <b>Telefone:</b> ${_escHtml(cliente.telefone)}<br>
+            <b>Email:</b> ${_escHtml(cliente.email)}<br>
+            <b>Responsável:</b> ${_escHtml(cliente.responsavel || "-")}
         </p>
 
         <h3>Itens da Proposta Comercial</h3>
@@ -1625,11 +1534,11 @@ function gerarPdfOrcamento(
   <table style="display:inline-block; border-collapse:collapse; width:100%; max-width:280px;">
     <tr>
       <td style="border:none; text-align:right; width:120px; background:#fff; padding:3px; font-weight:bold; font-size:8pt;">Subtotal:</td>
-      <td style="border:none; text-align:right; background:${rowColor}; padding:3px; width:100px; font-weight:bold; font-size:8pt;">${formatBR(totalPecas)}</td>
+      <td style="border:none; text-align:right; background:${rowColor}; padding:3px; width:100px; font-weight:bold; font-size:8pt;">${_formatBrCurrency(totalPecas)}</td>
     </tr>
     <tr>
       <td style="border:none; text-align:right; background:#fff; padding:3px; font-weight:bold; font-size:8pt;">Total:</td>
-      <td style="border:none; text-align:right; background:${rowColor}; padding:3px; width:100px; font-weight:bold; font-size:8pt;">${formatBR(totalFinal)}</td>
+      <td style="border:none; text-align:right; background:${rowColor}; padding:3px; width:100px; font-weight:bold; font-size:8pt;">${_formatBrCurrency(totalFinal)}</td>
     </tr>
   </table>
 </div>
@@ -1638,19 +1547,19 @@ function gerarPdfOrcamento(
 
         <h3 style="margin-top:12px;">Informações da proposta</h3>
         <p style="font-size:8pt; line-height:1.25;">
-          <b>Proposta Comercial - incluído em:</b> ${esc(dataBrasil)} às ${esc(horaBrasil)}<br>
+          <b>Proposta Comercial - incluído em:</b> ${_escHtml(dataBrasil)} às ${_escHtml(horaBrasil)}<br>
             <b>Validade da Proposta:</b> 30 dias
           </p>
 
         <p style="font-size:8pt; line-height:1.25;">
-          <b>Prazo de entrega:</b> ${esc(formatarDataBrasil(observacoes.prazo) || "-")}<br>
-          <b>Pagamento:</b> ${esc(observacoes.pagamento || "-")}<br>
-          <b>Vendedor:</b> ${esc(observacoes.vendedor || "-")}<br>
-          <b>Condições do Material:</b> ${esc(observacoes.materialCond || "-")}<br>
-          <b>Transporte:</b> ${esc(observacoes.transporte || "-")}<br>
+          <b>Prazo de entrega:</b> ${_escHtml(formatarDataBrasil(observacoes.prazo) || "-")}<br>
+          <b>Pagamento:</b> ${_escHtml(observacoes.pagamento || "-")}<br>
+          <b>Vendedor:</b> ${_escHtml(observacoes.vendedor || "-")}<br>
+          <b>Condições do Material:</b> ${_escHtml(observacoes.materialCond || "-")}<br>
+          <b>Transporte:</b> ${_escHtml(observacoes.transporte || "-")}<br>
         </p>
 
-        ${observacoes.adicional ? `<p style="font-size:8pt; line-height:1.25;"><b>Observações:</b><br>${esc(observacoes.adicional)}</p>` : ""}
+        ${observacoes.adicional ? `<p style="font-size:8pt; line-height:1.25;"><b>Observações:</b><br>${_escHtml(observacoes.adicional)}</p>` : ""}
 
       </body>
       </html>
@@ -1752,17 +1661,6 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     const headerColor = "#FF9933";
     const rowColor = "#FDF5E6";
 
-    // helpers
-    function esc(v) {
-      if (v === null || v === undefined) return "";
-      return String(v)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
     var todosProcessosOp = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
     var processosPresentes = [];
     resultados.forEach(function (p) {
@@ -1790,7 +1688,7 @@ function gerarPdfOrdemProducao(linhaOuKey) {
       var descProcsHtml = "";
       if (p.processos && p.processos.length > 0 && p.descricoesProcessos) {
         var descItems = p.processos.filter(function(s) { return p.descricoesProcessos[s]; }).map(function(sigla) {
-          return '<span style="font-size:7pt; color:#555;"><b>' + esc(sigla) + ':</b> ' + esc(p.descricoesProcessos[sigla]) + '</span>';
+          return '<span style="font-size:7pt; color:#555;"><b>' + _escHtml(sigla) + ':</b> ' + _escHtml(p.descricoesProcessos[sigla]) + '</span>';
         });
         if (descItems.length > 0) {
           descProcsHtml = '<br><div style="margin-top:2px;">' + descItems.join(' | ') + '</div>';
@@ -1798,9 +1696,9 @@ function gerarPdfOrdemProducao(linhaOuKey) {
       }
       return ''
         + '<tr>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + esc(p.codigo || "") + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + esc(p.descricao || "") + descProcsHtml + '</td>'
-        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;">' + esc(p.quantidade || 0) + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + _escHtml(p.codigo || "") + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + _escHtml(p.descricao || "") + descProcsHtml + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;">' + _escHtml(p.quantidade || 0) + '</td>'
         + cellsProc
         + '</tr>';
     }).join('');
@@ -1869,17 +1767,17 @@ function gerarPdfOrdemProducao(linhaOuKey) {
           </div>
         </div>
 
-        <h2>Ordem de Produção Nº ${esc(numeroProposta)}</h2>
+        <h2>Ordem de Produção Nº ${_escHtml(numeroProposta)}</h2>
         ${numeroSequencial ? `<h2><strong>Orçamento Nº ${numeroSequencial}</strong></h2>` : ''}
 
         <h3>Informações do Cliente:</h3>
         <p style="margin-bottom:12px; font-size:9pt; line-height:1.3;">
-          <p><strong>${esc(cliente.nome)}</strong><br></p>
-            CNPJ/CPF: ${esc(cliente.cpf)}<br>
-            ${esc(cliente.endereco)}<br>
-            <b>Telefone:</b> ${esc(cliente.telefone)}<br>
-            <b>Email:</b> ${esc(cliente.email)}<br>
-            <b>Responsável:</b> ${esc(cliente.responsavel || "-")}
+          <p><strong>${_escHtml(cliente.nome)}</strong><br></p>
+            CNPJ/CPF: ${_escHtml(cliente.cpf)}<br>
+            ${_escHtml(cliente.endereco)}<br>
+            <b>Telefone:</b> ${_escHtml(cliente.telefone)}<br>
+            <b>Email:</b> ${_escHtml(cliente.email)}<br>
+            <b>Responsável:</b> ${_escHtml(cliente.responsavel || "-")}
         </p>
 
         <h3>Itens da Ordem de Produção</h3>
@@ -1895,17 +1793,17 @@ function gerarPdfOrdemProducao(linhaOuKey) {
 
         <h3 style="margin-top:12px;">Informações do PDF</h3>
         <p style="font-size:8pt; line-height:1.25;">
-          <b>Ordem de Produção - gerado em:</b> ${esc(dataBrasil)} às ${esc(horaBrasil)}
+          <b>Ordem de Produção - gerado em:</b> ${_escHtml(dataBrasil)} às ${_escHtml(horaBrasil)}
         </p>
 
         <p style="font-size:8pt; line-height:1.25;">
-          <b>Prazo de entrega:</b> ${esc(formatarDataBrasil(observacoes.prazo) || "-")}<br>
-          <b>Vendedor:</b> ${esc(observacoes.vendedor || "-")}<br>
-          <b>Condições do Material:</b> ${esc(observacoes.materialCond || "-")}<br>
-          <b>Transporte:</b> ${esc(observacoes.transporte || "-")}<br>
+          <b>Prazo de entrega:</b> ${_escHtml(formatarDataBrasil(observacoes.prazo) || "-")}<br>
+          <b>Vendedor:</b> ${_escHtml(observacoes.vendedor || "-")}<br>
+          <b>Condições do Material:</b> ${_escHtml(observacoes.materialCond || "-")}<br>
+          <b>Transporte:</b> ${_escHtml(observacoes.transporte || "-")}<br>
         </p>
 
-        ${observacoes.adicional ? `<p style="font-size:8pt; line-height:1.25;"><b>Observações para o cliente:</b><br>${esc(observacoes.adicional)}</p>` : ""}
+        ${observacoes.adicional ? `<p style="font-size:8pt; line-height:1.25;"><b>Observações para o cliente:</b><br>${_escHtml(observacoes.adicional)}</p>` : ""}
 
         ${legendaProcessosHtml}
 
@@ -2021,16 +1919,6 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
     var headerColor = "#FF9933";
     var rowColor = "#FDF5E6";
 
-    function esc(v) {
-      if (v === null || v === undefined) return "";
-      return String(v)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
     function formatarMoeda(num) {
       if (num == null || isNaN(num)) return "";
       return Utilities.formatString("%.2f", num).replace(".", ",");
@@ -2044,9 +1932,9 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       if (isNaN(vt) || vt <= 0) vt = vu * qtd;
       return (
         "<tr>" +
-        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + esc(p.codigo || "") + "</td>" +
-        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + esc(p.descricao || "") + "</td>" +
-        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;\">" + esc(qtd) + "</td>" +
+        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + _escHtml(p.codigo || "") + "</td>" +
+        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + _escHtml(p.descricao || "") + "</td>" +
+        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;\">" + _escHtml(qtd) + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:right; font-size:8pt;\">R$ " + formatarMoeda(vu) + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:right; font-size:8pt;\">R$ " + formatarMoeda(vt) + "</td>" +
         "</tr>"
@@ -2066,15 +1954,15 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       "<img class=\"logo\" src=\"data:" + logoMime + ";base64," + logoBase64 + "\">" +
       "<div class=\"company-info\"><strong>TUBA FERRAMENTARIA LTDA</strong><br>CNPJ: 10.684.825/0001-26<br>Inscrição Estadual: 635592888110<br>Endereço: Estrada Dos Alvarengas, 4101 - Assunção<br>São Bernardo do Campo - SP - CEP: 09850-550<br>Site: www.tb4.com.br<br><b>Email:</b> tubaferram@gmail.com<br><b>Telefone:</b> (11) 91285-4204</div>" +
       "</div>" +
-      "<h2>Ordem de Compra Nº " + esc(codigoProjeto) + "</h2>" +
+      "<h2>Ordem de Compra Nº " + _escHtml(codigoProjeto) + "</h2>" +
       "<h3>Informações do Fornecedor (destinatário da ordem):</h3>" +
       "<p style=\"margin-bottom:12px; font-size:9pt; line-height:1.3;\">" +
-      "<strong>" + esc((fornecedor && fornecedor.nome) ? fornecedor.nome : "") + "</strong><br>" +
-      "CNPJ/CPF: " + esc((fornecedor && fornecedor.cpf) ? fornecedor.cpf : "-") + "<br>" +
-      esc((fornecedor && fornecedor.endereco) ? fornecedor.endereco : "-") + "<br>" +
-      "<b>Telefone:</b> " + esc((fornecedor && fornecedor.telefone) ? fornecedor.telefone : "-") + "<br>" +
-      "<b>Email:</b> " + esc((fornecedor && fornecedor.email) ? fornecedor.email : "-") + "<br>" +
-      (fornecedor && fornecedor.responsavel ? "<b>Responsável:</b> " + esc(fornecedor.responsavel) : "") + "</p>" +
+      "<strong>" + _escHtml((fornecedor && fornecedor.nome) ? fornecedor.nome : "") + "</strong><br>" +
+      "CNPJ/CPF: " + _escHtml((fornecedor && fornecedor.cpf) ? fornecedor.cpf : "-") + "<br>" +
+      _escHtml((fornecedor && fornecedor.endereco) ? fornecedor.endereco : "-") + "<br>" +
+      "<b>Telefone:</b> " + _escHtml((fornecedor && fornecedor.telefone) ? fornecedor.telefone : "-") + "<br>" +
+      "<b>Email:</b> " + _escHtml((fornecedor && fornecedor.email) ? fornecedor.email : "-") + "<br>" +
+      (fornecedor && fornecedor.responsavel ? "<b>Responsável:</b> " + _escHtml(fornecedor.responsavel) : "") + "</p>" +
       "<h3>Itens da Ordem de Compra</h3>" +
       "<table style=\"margin-top:8px;\">" +
       "<tr>" +
@@ -2084,7 +1972,7 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:right; border:0.1px solid #fff; font-size:8pt;\">Valor Unitário</th>" +
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:right; border:0.1px solid #fff; font-size:8pt;\">Valor Total</th>" +
       "</tr>" + linhas + "</table>" +
-      "<p style=\"font-size:8pt; margin-top:12px;\"><b>Ordem de Compra - gerado em:</b> " + esc(dataBrasil) + " às " + esc(horaBrasil) + "</p>" +
+      "<p style=\"font-size:8pt; margin-top:12px;\"><b>Ordem de Compra - gerado em:</b> " + _escHtml(dataBrasil) + " às " + _escHtml(horaBrasil) + "</p>" +
       "</body></html>";
 
     var blob = Utilities.newBlob(htmlContent, "text/html", "ordem_compra.html");
@@ -2535,155 +2423,6 @@ function getDashboardStats() {
   }
 
   return { propostas, kanban, etiquetas, materiais, logs, produtos, projetos };
-}
-
-/**
- * Retorna resumo operacional para o dashboard: orçamentos em aberto, entregas esta semana, pedidos pendentes.
- * @returns {{ orcamentosEmAberto: number, entregasEstaSemana: number, pedidosPendentes: number }}
- */
-function getDashboardResumoOperacional() {
-  try {
-    var orcamentosEmAberto = 0;
-    var entregasEstaSemana = 0;
-    var pedidosPendentes = 0;
-
-    var projetos = getProjetos();
-    for (var i = 0; i < projetos.length; i++) {
-      var st = (projetos[i].STATUS_ORCAMENTO || projetos[i]["STATUS ORCAMENTO"] || "").toString().trim().toLowerCase();
-      if (st === "enviado" || st === "rascunho") orcamentosEmAberto++;
-    }
-
-    var pedidos = getPedidos();
-    var hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    var fimSemana = new Date(hoje);
-    fimSemana.setDate(fimSemana.getDate() + 7);
-
-    function parseDataBr(s) {
-      if (!s) return null;
-      var m = (s + "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) {
-        var d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-        return isNaN(d.getTime()) ? null : d;
-      }
-      return null;
-    }
-
-    for (var j = 0; j < pedidos.length; j++) {
-      var p = pedidos[j];
-      var statusPag = (p["STATUS_PAGAMENTO"] || p["STATUS PAGAMENTO"] || "Pendente").toString().trim();
-      if (statusPag !== "Pago") pedidosPendentes++;
-
-      var dataEntregaStr = (p["DATA_ENTREGA"] || p["DATA DE ENTREGA"] || p.PRAZO || "").toString().trim();
-      if (!dataEntregaStr && p._dataVencimento) {
-        var first = (p._dataVencimento + "").split(",")[0];
-        dataEntregaStr = first ? first.trim() : "";
-      }
-      var dataEnt = parseDataBr(dataEntregaStr);
-      if (dataEnt) {
-        dataEnt.setHours(0, 0, 0, 0);
-        if (dataEnt.getTime() >= hoje.getTime() && dataEnt.getTime() <= fimSemana.getTime()) entregasEstaSemana++;
-      }
-    }
-
-    return { orcamentosEmAberto: orcamentosEmAberto, entregasEstaSemana: entregasEstaSemana, pedidosPendentes: pedidosPendentes };
-  } catch (e) {
-    Logger.log("getDashboardResumoOperacional error: " + e.message);
-    return { orcamentosEmAberto: 0, entregasEstaSemana: 0, pedidosPendentes: 0 };
-  }
-}
-
-/**
- * Retorna resumo financeiro (total recebido e total a receber) para o card do dashboard.
- * @returns {{ recebido: number, aReceber: number }}
- */
-function getFinanceiroResumo() {
-  try {
-    var pedidos = getPedidos();
-    var recebido = 0;
-    var aReceber = 0;
-    for (var i = 0; i < pedidos.length; i++) {
-      var p = pedidos[i];
-      recebido += _parseCurrency(p["VALOR_PAGO"] || p["VALOR PAGO"]);
-      if (p._valorRestante != null) {
-        aReceber += p._valorRestante;
-      }
-    }
-    return { recebido: recebido, aReceber: aReceber };
-  } catch (e) {
-    Logger.log("getFinanceiroResumo error: " + e.message);
-    return { recebido: 0, aReceber: 0 };
-  }
-}
-
-/**
- * Retorna as últimas atividades para exibir no dashboard.
- * 1) Se existir aba "Log de Atividades" ou "Atividades" com colunas Data e Descrição/Texto, usa as últimas 5 linhas.
- * 2) Caso contrário, monta a partir dos projetos mais recentes (Projetos).
- * @returns {Array<{ texto: string, data?: string }>}
- */
-function getUltimasAtividades() {
-  try {
-    var sheetAtiv = ss.getSheetByName("Log de Atividades") || ss.getSheetByName("Atividades");
-    if (sheetAtiv && sheetAtiv.getLastRow() >= 2) {
-      var dados = sheetAtiv.getDataRange().getValues();
-      var headers = dados[0].map(function (h) { return (h || "").toString().trim(); });
-      var idxData = _findHeaderIndex(headers, "Data");
-      if (idxData < 0) idxData = _findHeaderIndex(headers, "DataHora") >= 0 ? _findHeaderIndex(headers, "DataHora") : 0;
-      var idxTexto = _findHeaderIndex(headers, "Descrição");
-      if (idxTexto < 0) idxTexto = _findHeaderIndex(headers, "Texto");
-      if (idxTexto < 0) idxTexto = _findHeaderIndex(headers, "Descricao");
-      if (idxTexto < 0) idxTexto = 1;
-      var lista = [];
-      for (var i = dados.length - 1; i >= 1 && lista.length < 5; i--) {
-        var row = dados[i];
-        var texto = (row[idxTexto] != null && row[idxTexto] !== "") ? String(row[idxTexto]).trim() : "";
-        if (!texto) continue;
-        var dataVal = row[idxData];
-        var dataStr = "";
-        if (dataVal != null && dataVal !== "") {
-          if (Object.prototype.toString.call(dataVal) === "[object Date]") {
-            try {
-              dataStr = Utilities.formatDate(dataVal, ss.getSpreadsheetTimeZone() || "UTC", "dd/MM/yyyy HH:mm");
-            } catch (e) { dataStr = String(dataVal); }
-          } else {
-            dataStr = String(dataVal);
-          }
-        }
-        lista.push({ texto: texto, data: dataStr });
-      }
-      return lista;
-    }
-
-    // Fallback: últimos projetos — ordena por data decrescente aqui para manter "5 mais recentes" no dashboard
-    var projetos = getProjetos();
-    var parseBr = function (s) {
-      if (!s) return 0;
-      var m = (s + '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) return parseInt(m[3] + ('0' + m[2]).slice(-2) + ('0' + m[1]).slice(-2), 10);
-      return 0;
-    };
-    projetos = projetos.slice().sort(function (a, b) {
-      var ta = parseBr(a.DATA);
-      var tb = parseBr(b.DATA);
-      if (ta !== tb) return tb - ta;
-      return (b._linhaPlanilha || 0) - (a._linhaPlanilha || 0);
-    });
-    var out = [];
-    for (var j = 0; j < projetos.length && out.length < 5; j++) {
-      var proj = projetos[j];
-      var cod = (proj.PROJETO || proj["Número do Projeto"] || "").toString().trim();
-      var cliente = (proj.CLIENTE || proj.Cliente || "").toString().trim();
-      var status = (proj.STATUS_ORCAMENTO || proj["STATUS ORCAMENTO"] || "").toString().trim();
-      var dataProj = (proj.DATA || "").toString().trim();
-      var texto = "Projeto " + (cod || "—") + (cliente ? " - " + cliente : "") + (status ? " - " + status : "");
-      out.push({ texto: texto, data: dataProj });
-    }
-    return out;
-  } catch (e) {
-    Logger.log("getUltimasAtividades error: " + e.message);
-    return [];
-  }
 }
 
 // --- helper para achar índice de cabeçalho de forma robusta ---
@@ -3869,24 +3608,6 @@ function getOrCreateSubFolder(pastaPai, nome) {
   }
 }
 
-// Pega os dados da aba "avaliacoes"
-function getAvaliacoes() {
-  const valores = SHEET_AVAL.getDataRange().getValues();
-  const cabecalho = valores.shift();
-  const dados = valores.map((linha, i) => {
-    let obj = {};
-    cabecalho.forEach((col, j) => obj[col] = linha[j]);
-    obj["_linhaPlanilha"] = i + 2; // linha real da planilha
-    return obj;
-  });
-  return { cabecalho, dados };
-}
-
-// Excluir linha pelo número
-function excluirAvaliacao(linha) {
-  SHEET_AVAL.deleteRow(linha);
-}
-
 // Exportar tabela para PDF
 function exportarAvaliacoesPdf() {
   const url = ss.getUrl().replace(/edit$/, '') +
@@ -4028,19 +3749,7 @@ function _calcularParcelasPedidos(textoPagamento, valorTotal, dataBase) {
   var texto = textoPagamento.trim().replace(/\s+/g, " ");
   var textoUpper = texto.toUpperCase();
 
-  function parseBr(s) {
-    if (!s) return null;
-    var m = (s + "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-    return null;
-  }
-  function formatBr(d) {
-    if (!d || !d.getDate) return "";
-    var dd = ("0" + d.getDate()).slice(-2);
-    var mm = ("0" + (d.getMonth() + 1)).slice(-2);
-    return dd + "/" + mm + "/" + d.getFullYear();
-  }
-  var dBase = parseBr(dataBase);
+  var dBase = _parseBrDate(dataBase);
 
   // --- Percentual por condição (ex: 70% no pedido, 30% na entrega) ---
   var temPedidoOuEntrega = /pedido|entrega/i.test(texto);
@@ -4095,7 +3804,7 @@ function _calcularParcelasPedidos(textoPagamento, valorTotal, dataBase) {
   return dias.map(function (dia, idx) {
     var d = new Date(dBase.getTime());
     d.setDate(d.getDate() + dia);
-    return { numero: idx + 1, dias: dia, valor: valorParcela, dataVencimento: formatBr(d) };
+    return { numero: idx + 1, dias: dia, valor: valorParcela, dataVencimento: _formatBrDate(d) };
   });
 }
 
@@ -4367,90 +4076,6 @@ function updatesPedidoDesdeProjeto(p) {
 }
 
 /**
- * Migração única: copia para a aba Pedidos os dados que estão preenchidos na aba Projetos
- * (nas colunas de pedido) e estão vazios em Pedidos. Execute uma vez antes de excluir as colunas de pedido da Projetos.
- * Não sobrescreve células já preenchidas em Pedidos.
- * @returns {{ atualizados: number, semLinhaPedidos: number, erros: Array<string> }}
- */
-function migrarDadosPedidoProjetosParaPedidos() {
-  var resultado = { atualizados: 0, semLinhaPedidos: 0, erros: [] };
-  try {
-    var todos = getProjetos();
-    if (!todos || !Array.isArray(todos)) return resultado;
-
-    var pedidos = todos.filter(function (p) {
-      var status = (p.STATUS_ORCAMENTO || p["STATUS ORCAMENTO"] || "").toString().trim();
-      return status.toLowerCase() === "convertido em pedido";
-    });
-
-    var pedidosSheetMap = getPedidosSheetMap();
-    // Mapa: chave em dadosAtualizacao (atualizarPedidoNaPlanilha) -> chave no rowPed (getPedidosSheetMap)
-    var campoParaChavePedidos = {
-      NOTA_FISCAL: "NF",
-      CONDICOES_PAGAMENTO: "CONDICOES_PAGAMENTO",
-      DATA_ENTREGA: "DATA_ENTREGA",
-      DATA_VENCIMENTO: "DATA_VENCIMENTO",
-      VALOR_PAGO: "VALOR_PAGO",
-      STATUS_PAGAMENTO: "STATUS_PAGAMENTO",
-      HISTORICO_PAGAMENTOS: "PARCELAS_E_PGTOS",
-      NUMERO_SEQUENCIAL: "NUMERO_SEQUENCIAL",
-      DATA_COMPETENCIA: "DATA_COMPETENCIA"
-    };
-
-    for (var i = 0; i < pedidos.length; i++) {
-      var p = pedidos[i];
-      var codigo = (p.PROJETO || "").toString().trim();
-      if (!codigo) continue;
-
-      var rowPed = pedidosSheetMap[codigo];
-      if (!rowPed) {
-        resultado.semLinhaPedidos++;
-        ensurePedidoRow(p._linhaPlanilha);
-        pedidosSheetMap = getPedidosSheetMap();
-        rowPed = pedidosSheetMap[codigo];
-        if (!rowPed) continue;
-      }
-
-      var updates = updatesPedidoDesdeProjeto(p);
-      var dataComp = (p["DATA_COMPETENCIA"] || p["DATA COMPETÊNCIA"] || p.DATA || "").toString().trim();
-      if (dataComp) updates.DATA_COMPETENCIA = dataComp;
-
-      var toWrite = {};
-      for (var campo in updates) {
-        if (!Object.prototype.hasOwnProperty.call(updates, campo)) continue;
-        var pedidosKey = campoParaChavePedidos[campo] || campo;
-        var valorPedidos = rowPed[pedidosKey];
-        var valorProjetos = updates[campo];
-        var pedidosVazio = (valorPedidos == null || String(valorPedidos).trim() === "");
-        var projetosPreenchido = (valorProjetos != null && String(valorProjetos).trim() !== "");
-        if (pedidosVazio && projetosPreenchido) toWrite[campo] = valorProjetos;
-      }
-
-      if (Object.keys(toWrite).length > 0) {
-        try {
-          var dadosProjeto = {
-            CLIENTE: p.CLIENTE,
-            "VALOR TOTAL": p["VALOR TOTAL"],
-            _dataCompetencia: (p["DATA_COMPETENCIA"] || p["DATA COMPETÊNCIA"] || p.DATA || "").toString().trim(),
-            _linhaPlanilha: p._linhaPlanilha
-          };
-          atualizarPedidoNaPlanilha(codigo, toWrite, dadosProjeto);
-          resultado.atualizados++;
-        } catch (err) {
-          resultado.erros.push(codigo + ": " + (err.message || err));
-        }
-      }
-    }
-
-    return resultado;
-  } catch (e) {
-    resultado.erros.push("migrarDadosPedidoProjetosParaPedidos: " + (e.message || e));
-    Logger.log("migrarDadosPedidoProjetosParaPedidos error: " + e.message);
-    return resultado;
-  }
-}
-
-/**
  * Adiciona em lote na aba Pedidos todas as linhas dos projetos que ainda não têm registro.
  * Uma única leitura/escrita para evitar timeout e "um por vez".
  * @param {Array} pedidos - Lista de objetos projeto (status Convertido em Pedido)
@@ -4546,23 +4171,6 @@ function ensurePedidoRow(linhaProjetos) {
 
 function getPedidos() {
   try {
-    function parseBr(s) {
-      if (!s) return null;
-      var str = (s || "").toString().trim();
-      var m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) {
-        var d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-        return isNaN(d.getTime()) ? null : d;
-      }
-      return null;
-    }
-    function formatBr(date) {
-      if (!date || !date.getDate) return "";
-      var dd = ("0" + date.getDate()).slice(-2);
-      var mm = ("0" + (date.getMonth() + 1)).slice(-2);
-      var yyyy = date.getFullYear();
-      return dd + "/" + mm + "/" + yyyy;
-    }
     function diasDasCondicoes(cond) {
       if (!cond) return 0;
       var c = (cond || "").toString().toLowerCase();
@@ -4709,10 +4317,10 @@ function getPedidos() {
             p._dataVencimentoOrdenar = (parcelas[0].condicao ? dataBaseVenc : parcelas[0].dataVencimento) || dataBaseVenc;
           } else {
             var dias = diasDasCondicoes(condicoes);
-            var d = parseBr(dataBaseVenc);
+            var d = _parseBrDate(dataBaseVenc);
             if (d) {
               d.setDate(d.getDate() + dias);
-              dataVenc = formatBr(d);
+              dataVenc = _formatBrDate(d);
             }
             p._dataVencimentoOrdenar = dataVenc;
           }
@@ -5431,54 +5039,6 @@ function _parseCodigoProjetoParaOrdenacao(codigo) {
   return { dateNum: dateNum, indexNum: indexNum, initials: initials };
 }
 
-/**
- * Ordena a aba Projetos pelo código do projeto (YYMMDD + índice + iniciais).
- * Ordem na planilha: mais antigos primeiro (data crescente), depois índice (a, b, c...), depois iniciais.
- * Assim a linha 2 fica com o projeto mais antigo e a última linha com o mais recente. Novos projetos
- * são adicionados ao final (appendRow); a página de Projetos ordena por última linha primeiro, então
- * os existentes ficam em ordem por data e todo novo projeto aparece no topo.
- */
-function ordenarPlanilhaProjetosPorCodigo() {
-  var sheet = SHEET_PROJ;
-  if (!sheet) {
-    Logger.log("ordenarPlanilhaProjetosPorCodigo: Aba Projetos não encontrada");
-    throw new Error("Aba 'Projetos' não encontrada.");
-  }
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
-  if (lastRow < 2) {
-    Logger.log("ordenarPlanilhaProjetosPorCodigo: Nenhum dado para ordenar");
-    return;
-  }
-  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
-  var headers = values[0];
-  var dataRows = values.slice(1);
-  var idxProjeto = -1;
-  for (var h = 0; h < headers.length; h++) {
-    var hv = (headers[h] || '').toString().trim().toUpperCase();
-    if (hv === 'PROJETO' || hv === 'NÚMERO DO PROJETO' || hv === 'NUMERO DO PROJETO' || hv === 'CÓDIGO' || hv === 'CODIGO') {
-      idxProjeto = h;
-      break;
-    }
-  }
-  if (idxProjeto < 0) {
-    Logger.log("ordenarPlanilhaProjetosPorCodigo: Coluna PROJETO não encontrada. Headers: " + headers.join(', '));
-    throw new Error("Coluna do código do projeto (PROJETO) não encontrada na aba Projetos.");
-  }
-  dataRows.sort(function (rowA, rowB) {
-    var codA = (rowA[idxProjeto] != null ? rowA[idxProjeto] : '').toString().trim();
-    var codB = (rowB[idxProjeto] != null ? rowB[idxProjeto] : '').toString().trim();
-    var pa = _parseCodigoProjetoParaOrdenacao(codA);
-    var pb = _parseCodigoProjetoParaOrdenacao(codB);
-    if (pa.dateNum !== pb.dateNum) return pa.dateNum - pb.dateNum; // mais antigos primeiro na planilha
-    if (pa.indexNum !== pb.indexNum) return pa.indexNum - pb.indexNum;
-    return (pa.initials || '').localeCompare(pb.initials || '');
-  });
-  var newValues = [headers].concat(dataRows);
-  sheet.getRange(1, 1, lastRow, lastCol).setValues(newValues);
-  Logger.log("ordenarPlanilhaProjetosPorCodigo: Planilha ordenada por código (mais antigos primeiro). Novos projetos no final aparecem no topo da página.");
-}
-
 // ==================== FUNÇÕES DE VALIDAÇÃO E MIGRAÇÃO ====================
 
 /**
@@ -5758,111 +5318,6 @@ function atualizarRascunho(linhaOuKey, dados) {
   } catch (e) {
     Logger.log("Erro ao atualizar rascunho: " + e.message);
     throw new Error("Erro ao atualizar rascunho: " + e.message);
-  }
-}
-
-/**
- * Salva o formulário diretamente como pedido (sem passar por orçamento enviado).
- * O projeto é registrado já com STATUS_ORCAMENTO = "Convertido em Pedido" e STATUS_PEDIDO definido.
- */
-function salvarComoPedido(dados) {
-  try {
-    const cliente = dados.cliente || {};
-    const observacoes = dados.observacoes || {};
-    const codigoProjeto = (observacoes.projeto || "").trim();
-    const clienteNome = (cliente.nome || "").trim();
-    const descricao = (observacoes.descricao || "").trim();
-    const prazo = (observacoes.prazo || "").trim();
-    const clienteResponsavel = (cliente.responsavel || "").trim();
-
-    if (!codigoProjeto || codigoProjeto.length < 8) {
-      throw new Error("Código do projeto inválido. Preencha Data, Índice e Iniciais.");
-    }
-    if (!clienteNome) {
-      throw new Error("Nome do cliente é obrigatório.");
-    }
-    if (!descricao || descricao.trim() === "") {
-      throw new Error("Descrição do projeto é obrigatória.");
-    }
-
-    const validacao = verificarProjetoDuplicado(codigoProjeto);
-    if (validacao.duplicado) {
-      throw new Error("Já existe um projeto com o número " + codigoProjeto + ". Use outro número ou carregue o projeto existente para atualizar.");
-    }
-    
-    // Cria pasta com prefixo PED (isPedido=true)
-    try {
-      const dataProj = codigoProjeto.substring(0, 6);
-      const nomeAbreviado = (cliente.nomeAbreviado || "").trim();
-      criarPastaOrcamento(codigoProjeto, descricao, dataProj, clienteNome, true, nomeAbreviado);
-    } catch (e) {
-      Logger.log("Aviso ao criar pasta como pedido: " + e.message);
-    }
-
-    let valorTotal = 0;
-    try {
-      const preview = calcularPreviewOrcamento(dados);
-      if (preview && typeof preview.total === "number") {
-        valorTotal = preview.total;
-      }
-    } catch (e) {
-      Logger.log("Aviso ao calcular total em salvarComoPedido: " + e.message);
-    }
-
-    const sheetProj = SHEET_PROJ;
-    if (!sheetProj) throw new Error("Aba Projetos não encontrada");
-
-    if (dados.produtosCadastrados && Array.isArray(dados.produtosCadastrados)) {
-      atribuirCodigosPRDAutomaticos(dados.produtosCadastrados);
-    }
-
-    const agora = new Date();
-    const dataBrasil = formatarDataBrasil(agora);
-    const dadosJson = JSON.stringify({
-      nome: codigoProjeto,
-      dataSalvo: agora.toISOString(),
-      dados: dados
-    });
-
-    var dadosObjPedido = {
-      "CLIENTE": clienteNome,
-      "DESCRIÇÃO": descricao,
-      "RESPONSÁVEL CLIENTE": clienteResponsavel,
-      "PROJETO": codigoProjeto,
-      "VALOR TOTAL": valorTotal,
-      "DATA": dataBrasil,
-      "PROCESSOS": "",
-      "LINK DO PDF": "",
-      "LINK DA MEMÓRIA DE CÁLCULO": "",
-      "STATUS_ORCAMENTO": "Convertido em Pedido",
-      "STATUS_PEDIDO": "Processo de Preparação MP / CAD / CAM",
-      "PRAZO": prazo,
-      "PRAZO_PROPOSTA": "",
-      "OBSERVAÇÕES": "",
-      "JSON_DADOS": dadosJson
-    };
-    // Regra: nunca duplicar código de projeto — se já existir linha com este PROJETO, atualizar em vez de inserir
-    var codigoPedido = String((dados.observacoes && dados.observacoes.projeto) || "").trim();
-    var linhaExistentePed = codigoPedido ? findRowByColumnValue(sheetProj, "PROJETO", codigoPedido) : null;
-    if (linhaExistentePed) {
-      _escreverLinhaProjetosPorCabecalho(sheetProj, linhaExistentePed, dadosObjPedido, true);
-    } else {
-      _escreverLinhaProjetosPorCabecalho(sheetProj, sheetProj.getLastRow() + 1, dadosObjPedido, false);
-    }
-    // Gerar Ordem de Produção ao criar projeto como pedido
-    try {
-      const linhaParaOp = linhaExistentePed || sheetProj.getLastRow();
-      const resultOp = gerarPdfOrdemProducao(linhaParaOp);
-      if (resultOp && resultOp.url) {
-        Logger.log("Ordem de Produção gerada ao salvar como pedido: " + resultOp.url);
-      }
-    } catch (errOp) {
-      Logger.log("Aviso: não foi possível gerar Ordem de Produção ao salvar como pedido: " + (errOp.message || errOp));
-    }
-    return { success: true };
-  } catch (e) {
-    Logger.log("Erro salvarComoPedido: " + e.message);
-    throw new Error(e.message || "Erro ao salvar como pedido");
   }
 }
 
@@ -6506,75 +5961,6 @@ function registrarRetornoVeiculo(rowNumber) {
   return { success: true, row: rowNumber, retorno: retornoTexto };
 }
 
-// ==================== CONFIGURAÇÕES DA APRESENTAÇÃO ====================
-
-function getConfiguracoesApresentacao() {
-  try {
-    // Use global ss (SpreadsheetApp.openById already called at startup)
-    let sheet = ss.getSheetByName('Configuracoes');
-
-    if (!sheet) {
-      // Criar aba se não existir
-      sheet = ss.insertSheet('Configuracoes');
-      sheet.getRange('A1:B1').setValues([['chave', 'valor']]);
-      sheet.getRange('A2:B5').setValues([
-        ['timeKanban', '10'],
-        ['timeSeguranca', '1'],
-        ['transitionTime', '1.5'],
-        ['messagePosition', 'bottom']
-      ]);
-    }
-
-    const data = sheet.getDataRange().getValues();
-    const config = {};
-
-    for (let i = 1; i < data.length; i++) {
-      const chave = data[i][0];
-      const valor = data[i][1];
-
-      if (chave === 'timeKanban' || chave === 'timeSeguranca') {
-        config[chave] = parseInt(valor) || 5;
-      } else if (chave === 'transitionTime') {
-        config[chave] = parseFloat(valor) || 1.5;
-      } else {
-        config[chave] = valor;
-      }
-    }
-
-    return { success: true, config: config };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
-function salvarConfiguracoesApresentacao(config) {
-  try {
-    // Use global ss (SpreadsheetApp.openById already called at startup)
-    let sheet = ss.getSheetByName('Configuracoes');
-
-    if (!sheet) {
-      sheet = ss.insertSheet('Configuracoes');
-      sheet.getRange('A1:B1').setValues([['chave', 'valor']]);
-    }
-
-    // Limpar dados antigos (exceto cabeçalho)
-    const lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, 2).clear();
-    }
-
-    // Salvar novas configurações
-    const configArray = Object.entries(config).map(([chave, valor]) => [chave, valor.toString()]);
-    if (configArray.length > 0) {
-      sheet.getRange(2, 1, configArray.length, 2).setValues(configArray);
-    }
-
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
 // Atualizar função de mensagem para incluir destaque
 function salvarMensagemApresentacao(texto, cor, tamanho, destaque) {
   try {
@@ -6730,30 +6116,6 @@ function deletarMensagemApresentacao(id) {
     return { success: true };
   } catch (e) {
     Logger.log("Erro ao deletar mensagem: " + e.message);
-    return { success: false, error: e.message };
-  }
-}
-// Função para listar TODAS as mensagens (incluindo inativas) - útil para debug
-function getTodasMensagensApresentacao() {
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const raw = props.getProperty('APRESENTACAO_MENSAGENS');
-    if (!raw) return [];
-
-    return JSON.parse(raw);
-  } catch (e) {
-    Logger.log("Erro ao carregar todas as mensagens: " + e.message);
-    return [];
-  }
-}
-
-// Função para limpar TODAS as mensagens (use com cuidado!)
-function limparTodasMensagensApresentacao() {
-  try {
-    const props = PropertiesService.getScriptProperties();
-    props.deleteProperty('APRESENTACAO_MENSAGENS');
-    return { success: true };
-  } catch (e) {
     return { success: false, error: e.message };
   }
 }
