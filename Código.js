@@ -1,5 +1,14 @@
 /************* Code.gs *************/
-const ss = SpreadsheetApp.openById("1wMIbd8r2HeniFLTYaG8Yhhl8CWmaHaW5oXBVnxj0xos");
+
+// ==================== CONFIGURATION ====================
+const CONFIG = {
+  SPREADSHEET_ID: "1wMIbd8r2HeniFLTYaG8Yhhl8CWmaHaW5oXBVnxj0xos",
+  ID_PASTA_PRINCIPAL: "1jqIVHbThV3SPBM8MOHek4r5tr2DoHbqz",
+  ID_LOGO: "1pnRLV6YZYMD6Yhv1cUb4FXVr0ol_Zzzf",
+  FAVICON: "https://i.imgur.com/C0dSTyE.png"
+};
+
+const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 const SHEET_CALC = ss.getSheetByName("Tabelas para cálculos");
 const SHEET_VEIC = ss.getSheetByName('Controle de Veículos');
 const SHEET_MANU_NAME = ss.getSheetByName("Registro de Manutenções");
@@ -14,9 +23,42 @@ const SHEET_CLIENTES = ss.getSheetByName("Cadastro de Clientes");
 const SHEET_FORNECEDORES = ss.getSheetByName("Cadastro de Fornecedores");
 const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
 const SHEET_PROJ = ss.getSheetByName("Projetos"); // Nova aba unificada
-const ID_PASTA_PRINCIPAL = "1jqIVHbThV3SPBM8MOHek4r5tr2DoHbqz";
-const ID_LOGO = "1pnRLV6YZYMD6Yhv1cUb4FXVr0ol_Zzzf";
-const FAVICON = "https://i.imgur.com/C0dSTyE.png"
+const ID_PASTA_PRINCIPAL = CONFIG.ID_PASTA_PRINCIPAL;
+const ID_LOGO = CONFIG.ID_LOGO;
+const FAVICON = CONFIG.FAVICON;
+
+// ==================== SHEET CACHE ====================
+/**
+ * Per-execution cache for sheet data values.
+ * Avoids repeated getDataRange().getValues() calls for the same sheet within one request.
+ * Call SheetCache.invalidate(sheet) after any write operation to keep the cache fresh.
+ */
+const SheetCache = (function () {
+  const _dataCache = {};
+  const _displayCache = {};
+  return {
+    /** Returns cached getValues() for a sheet, reading once per execution. */
+    getData: function (sheet) {
+      if (!sheet) return null;
+      const key = sheet.getName();
+      if (!_dataCache[key]) _dataCache[key] = sheet.getDataRange().getValues();
+      return _dataCache[key];
+    },
+    /** Returns cached getDisplayValues() for a sheet, reading once per execution. */
+    getDisplayData: function (sheet) {
+      if (!sheet) return null;
+      const key = sheet.getName();
+      if (!_displayCache[key]) _displayCache[key] = sheet.getDataRange().getDisplayValues();
+      return _displayCache[key];
+    },
+    /** Invalidate cache for a sheet after writes (accepts sheet object or name string). */
+    invalidate: function (sheetOrName) {
+      const key = typeof sheetOrName === 'string' ? sheetOrName : sheetOrName.getName();
+      delete _dataCache[key];
+      delete _displayCache[key];
+    }
+  };
+})();
 
 // ==================== PRODUTOS CADASTRADOS ====================
 /**
@@ -25,13 +67,13 @@ const FAVICON = "https://i.imgur.com/C0dSTyE.png"
  */
 function getProdutosCadastrados() {
   try {
-    const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
+    // Use global SHEET_PRODUTOS
     if (!SHEET_PRODUTOS) {
       Logger.log("Aba 'Relação de produtos' não encontrada");
       return [];
     }
 
-    const dados = SHEET_PRODUTOS.getDataRange().getValues();
+    const dados = SheetCache.getData(SHEET_PRODUTOS);
     if (dados.length < 2) return [];
 
     // Estrutura da planilha:
@@ -73,12 +115,12 @@ function getProdutosCadastrados() {
  */
 function getProximoCodigoPRD() {
   try {
-    const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
+    // Use global SHEET_PRODUTOS
     if (!SHEET_PRODUTOS) {
       return "PRD00001"; // Primeiro código se a aba não existe
     }
 
-    const dados = SHEET_PRODUTOS.getDataRange().getValues();
+    const dados = SheetCache.getData(SHEET_PRODUTOS);
     if (dados.length < 2) {
       return "PRD00001"; // Primeiro código se não há produtos
     }
@@ -104,25 +146,6 @@ function getProximoCodigoPRD() {
   }
 }
 
-/**
- * Atribui códigos PRD às peças das chapas que não possuem código
- * @param {Array} chapas - Array de chapas com peças
- */
-function atribuirCodigosPRDEmChapas(chapas) {
-  if (!chapas || !Array.isArray(chapas)) return;
-  var numeroPRD = parseInt(getProximoCodigoPRD().substring(3), 10) || 0;
-  chapas.forEach(function (chapa) {
-    if (chapa.pecas && Array.isArray(chapa.pecas)) {
-      chapa.pecas.forEach(function (peca) {
-        var codigo = (peca.codigo && String(peca.codigo).trim()) || "";
-        if (!codigo || String(codigo).toUpperCase().indexOf("PRD") !== 0) {
-          peca.codigo = "PRD" + String(numeroPRD).padStart(5, "0");
-          numeroPRD++;
-        }
-      });
-    }
-  });
-}
 
 /**
  * Atribui códigos PRD aos produtos que não possuem código
@@ -162,7 +185,7 @@ function inserirProdutoNaRelacao(produto) {
   try {
     Logger.log("Tentando inserir produto: " + JSON.stringify(produto));
 
-    const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
+    // Use global SHEET_PRODUTOS
     if (!SHEET_PRODUTOS) {
       Logger.log("ERRO: Aba 'Relação de produtos' não encontrada");
       return false;
@@ -171,7 +194,7 @@ function inserirProdutoNaRelacao(produto) {
     Logger.log("Aba 'Relação de produtos' encontrada. Verificando duplicatas...");
 
     // Verifica se o produto já existe
-    const dados = SHEET_PRODUTOS.getDataRange().getValues();
+    const dados = SheetCache.getData(SHEET_PRODUTOS);
     Logger.log("Total de linhas na planilha: " + dados.length);
 
     for (let i = 1; i < dados.length; i++) {
@@ -209,16 +232,11 @@ function inserirProdutoNaRelacao(produto) {
 
     var numCols = SHEET_PRODUTOS.getLastColumn();
     if (numCols < 11 && novaLinha.length > 10) {
-      SHEET_PRODUTOS.getRange(1, 11).setValue("MP");
-      SHEET_PRODUTOS.getRange(1, 12).setValue("CL");
-      SHEET_PRODUTOS.getRange(1, 13).setValue("D");
-      SHEET_PRODUTOS.getRange(1, 14).setValue("S");
-      SHEET_PRODUTOS.getRange(1, 15).setValue("Pin");
-      SHEET_PRODUTOS.getRange(1, 16).setValue("CAD");
-      SHEET_PRODUTOS.getRange(1, 17).setValue("ACB");
+      SHEET_PRODUTOS.getRange(1, 11, 1, 7).setValues([["MP", "CL", "D", "S", "Pin", "CAD", "ACB"]]);
     }
     Logger.log("Inserindo nova linha: " + JSON.stringify(novaLinha));
     SHEET_PRODUTOS.appendRow(novaLinha);
+    SheetCache.invalidate(SHEET_PRODUTOS);
     Logger.log("✓ Produto " + produto.codigo + " inserido com sucesso na relação");
     return true;
   } catch (err) {
@@ -239,12 +257,12 @@ function atualizarPRDNoCatalogo(dadosNovos) {
       throw new Error("Código do produto é obrigatório");
     }
 
-    const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
+    // Use global SHEET_PRODUTOS
     if (!SHEET_PRODUTOS) {
       throw new Error("Aba 'Relação de produtos' não encontrada");
     }
 
-    const dados = SHEET_PRODUTOS.getDataRange().getValues();
+    const dados = SheetCache.getData(SHEET_PRODUTOS);
     let linhaEncontrada = -1;
     let dadosAntigos = null;
 
@@ -268,32 +286,33 @@ function atualizarPRDNoCatalogo(dadosNovos) {
       throw new Error(`Produto com código ${dadosNovos.codigo} não encontrado no catálogo`);
     }
 
-    // Atualiza os dados na planilha
-    // Estrutura: A=Código, B=Descrição, C=Código Família, D=EAN, E=NCM, F=Preço, G=Unidade, H=Características, I=Projeto, J=Cliente, K=MP, L=CL, M=D, N=S, O=Pin
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 2).setValue(dadosNovos.descricao || ""); // B - Descrição
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 5).setValue(dadosNovos.ncm || ""); // E - NCM
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 6).setValue(dadosNovos.preco || 0); // F - Preço
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 7).setValue(dadosNovos.unidade || "UN"); // G - Unidade
+    // Atualiza os dados na planilha em lote (1 read + 1 write)
+    // Estrutura: A=Código, B=Descrição, C=Código Família, D=EAN, E=NCM, F=Preço, G=Unidade, H=Características, I=Projeto, J=Cliente, K=MP, L=CL, M=D, N=S, O=Pin, P=CAD, Q=ACB
+    var numCols = Math.max(SHEET_PRODUTOS.getLastColumn(), 17);
+    var rowData = SHEET_PRODUTOS.getRange(linhaEncontrada, 1, 1, numCols).getValues()[0];
+
+    // Garante cabeçalhos de processos se a planilha tem menos de 17 colunas
+    if (SHEET_PRODUTOS.getLastColumn() < 11) {
+      SHEET_PRODUTOS.getRange(1, 11, 1, 7).setValues([["MP", "CL", "D", "S", "Pin", "CAD", "ACB"]]);
+    }
 
     var processosArr = dadosNovos.processos && Array.isArray(dadosNovos.processos) ? dadosNovos.processos : [];
     function temP(sigla) { return processosArr.indexOf(sigla) >= 0; }
-    var numCols = SHEET_PRODUTOS.getLastColumn();
-    if (numCols < 11) {
-      SHEET_PRODUTOS.getRange(1, 11).setValue("MP");
-      SHEET_PRODUTOS.getRange(1, 12).setValue("CL");
-      SHEET_PRODUTOS.getRange(1, 13).setValue("D");
-      SHEET_PRODUTOS.getRange(1, 14).setValue("S");
-      SHEET_PRODUTOS.getRange(1, 15).setValue("Pin");
-      SHEET_PRODUTOS.getRange(1, 16).setValue("CAD");
-      SHEET_PRODUTOS.getRange(1, 17).setValue("ACB");
-    }
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 11).setValue(temP("MP") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 12).setValue(temP("CL") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 13).setValue(temP("D") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 14).setValue(temP("S") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 15).setValue(temP("Pin") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 16).setValue(temP("CAD") ? "X" : "");
-    SHEET_PRODUTOS.getRange(linhaEncontrada, 17).setValue(temP("ACB") ? "X" : "");
+
+    rowData[1]  = dadosNovos.descricao || "";    // B - Descrição
+    rowData[4]  = dadosNovos.ncm || "";          // E - NCM
+    rowData[5]  = dadosNovos.preco || 0;         // F - Preço
+    rowData[6]  = dadosNovos.unidade || "UN";    // G - Unidade
+    rowData[10] = temP("MP")  ? "X" : "";        // K - MP
+    rowData[11] = temP("CL")  ? "X" : "";        // L - CL
+    rowData[12] = temP("D")   ? "X" : "";        // M - D
+    rowData[13] = temP("S")   ? "X" : "";        // N - S
+    rowData[14] = temP("Pin") ? "X" : "";        // O - Pin
+    rowData[15] = temP("CAD") ? "X" : "";        // P - CAD
+    rowData[16] = temP("ACB") ? "X" : "";        // Q - ACB
+
+    SHEET_PRODUTOS.getRange(linhaEncontrada, 1, 1, numCols).setValues([rowData]);
+    SheetCache.invalidate(SHEET_PRODUTOS);
 
     return {
       success: true,
@@ -305,122 +324,6 @@ function atualizarPRDNoCatalogo(dadosNovos) {
   }
 }
 
-/**
- * Insere produtos com código PRD das chapas na "Relação de produtos"
- * @param {Array} chapas - Array com dados das chapas e peças
- * @param {string} codigoProjeto - Código do projeto (para coluna Projeto)
- * @param {string} nomeCliente - Nome do cliente (para coluna Cliente)
- */
-function inserirProdutosDasChapas(chapas, codigoProjeto, nomeCliente) {
-  try {
-    if (!Array.isArray(chapas)) {
-      Logger.log("inserirProdutosDasChapas: chapas não é um array");
-      return;
-    }
-
-    Logger.log("inserirProdutosDasChapas: Processando " + chapas.length + " chapas");
-
-    let produtosInseridos = 0;
-    let produtosPulados = 0;
-
-    chapas.forEach((chapa, chapaIdx) => {
-      if (chapa.pecas && Array.isArray(chapa.pecas)) {
-        Logger.log("Chapa " + chapaIdx + ": " + chapa.pecas.length + " peças encontradas");
-        chapa.pecas.forEach((peca, pecaIdx) => {
-          // Só insere se tiver código PRD
-          if (peca.codigo && String(peca.codigo).startsWith("PRD")) {
-            Logger.log("Peça " + pecaIdx + " tem código PRD: " + peca.codigo);
-            const produto = {
-              codigo: peca.codigo,
-              descricao: peca.descricao || "",
-              ncm: "",  // Peças não têm NCM específico
-              preco: peca.precoUnitario || 0,
-              unidade: "UN",
-              caracteristicas: `${chapa.material} - ${peca.comprimento}x${peca.largura} - ${chapa.espessura}mm`,
-              projeto: codigoProjeto || "",
-              cliente: nomeCliente || ""
-            };
-            const resultado = inserirProdutoNaRelacao(produto);
-            if (resultado) {
-              produtosInseridos++;
-            } else {
-              produtosPulados++;
-            }
-          } else {
-            Logger.log("Peça " + pecaIdx + " não tem código PRD válido: " + (peca.codigo || "sem código"));
-            produtosPulados++;
-          }
-        });
-      } else {
-        Logger.log("Chapa " + chapaIdx + ": sem peças ou peças não é array");
-      }
-    });
-
-    Logger.log("Total: " + produtosInseridos + " produtos inseridos, " + produtosPulados + " pulados");
-  } catch (err) {
-    Logger.log("Erro ao inserir produtos das chapas: " + err);
-  }
-}
-
-// ==================== HELPERS DE OTIMIZAÇÃO ====================
-/**
- * Retorna índice (0-based) do material na ordem do objeto MATERIAIS.
- * Usado para calcular offsets (por exemplo linhas de corte/dobra baseadas em um índice)
- */
-function _getMaterialIndexMap() {
-  const keys = Object.keys(MATERIAIS);
-  const map = {};
-  keys.forEach((k, i) => map[k] = i);
-  return { keys, map };
-}
-
-/**
- * Lê preços (colunas L e M) para todas as entradas de MATERIAIS de uma só vez.
- * Retorna objeto { "NOME_MAT": { precoUnit: x, precoTotalPlanilha: y } }
- */
-function _lerPrecosMateriais() {
-  const matKeys = Object.keys(MATERIAIS);
-  // assumindo que linhaPreco em MATERIAIS é sequencial por material (4,5,6..)
-  const linhas = matKeys.map(k => MATERIAIS[k].linhaPreco);
-  const min = Math.min.apply(null, linhas);
-  const max = Math.max.apply(null, linhas);
-  const count = max - min + 1;
-  const valores = SHEET_CALC.getRange(min, 12, count, 2).getValues(); // col L=12, M=13 -> here cols 12,13
-  const res = {};
-  matKeys.forEach((k, i) => {
-    const rowIndex = linhas[i] - min; // offset
-    const v = valores[rowIndex] || [0, 0];
-    res[k] = { precoUnit: parseFloat(v[0]) || 0, precoTotalPlanilha: parseFloat(v[1]) || 0 };
-  });
-  return res;
-}
-
-function _preencherInputsCalcParaPeca(mat, chapa, peca) {
-  const linhaChapa = mat.linhaChapa;
-  const linhaPeca = mat.linhaPeca;
-
-  // 1) Preenche C/D/E da linhaChapa (comprimento, largura, espessura) — contíguo
-  SHEET_CALC.getRange(linhaChapa, 3, 1, 3)
-    .setValues([[chapa.comprimento, chapa.largura, chapa.espessura]]); // C,D,E
-
-  // 2) Preenche B/C (col 2,3) da linhaPeca
-  SHEET_CALC.getRange(linhaPeca, 2, 1, 2)
-    .setValues([[peca.comprimento, peca.largura]]); // B,C
-
-  // 3) Preenche E/F (col 5,6) da linhaPeca (numPecasLote, numPecasChapa)
-  SHEET_CALC.getRange(linhaPeca, 5, 1, 2)
-    .setValues([[Number(peca.numPecasLote || 0), Number(peca.numPecasChapa || 0)]]); // E,F
-
-  // 4) Tempo de corte (linhaCorte col E = 5)
-  SHEET_CALC.getRange(mat.linhaCorte, 5).setValue(Number(peca.tempoCorte || 0));
-
-  // 5) Dobra: D (col4) = numDobras, E (col5) = tempoDobra (col5 may be used differently per sheet row)
-  SHEET_CALC.getRange(mat.linhaDobra, 4, 1, 2)
-    .setValues([[Number(peca.numDobras || 0), Number(peca.tempoDobra || 0)]]); // D,E
-
-  // 6) setupDobra (col G = 7)
-  SHEET_CALC.getRange(mat.linhaDobra, 7).setValue(Number(peca.setupDobra || 0));
-}
 
 // Formata número BR (R$) (mesma lógica que você tinha)
 function _formatBR(n) {
@@ -438,102 +341,6 @@ function formatarDataBrasil(date) {
   const mes = String(d.getUTCMonth() + 1).padStart(2, "0");
   const ano = d.getUTCFullYear();
   return `${dia}/${mes}/${ano}`;
-}
-
-const MATERIAIS = {
-  "AÇO CARBONO": { linhaChapa: 4, linhaPeca: 12, linhaCorte: 20, linhaDobra: 28, linhaPreco: 4 },
-  "ALUMÍNIO": { linhaChapa: 5, linhaPeca: 13, linhaCorte: 21, linhaDobra: 29, linhaPreco: 5 },
-  "INOX 200 OU 300": { linhaChapa: 6, linhaPeca: 14, linhaCorte: 22, linhaDobra: 30, linhaPreco: 6 },
-  "INOX 400": { linhaChapa: 7, linhaPeca: 15, linhaCorte: 23, linhaDobra: 31, linhaPreco: 7 },
-  "LATÃO": { linhaChapa: 8, linhaPeca: 16, linhaCorte: 24, linhaDobra: 32, linhaPreco: 8 },
-  "COBRE": { linhaChapa: 9, linhaPeca: 17, linhaCorte: 25, linhaDobra: 33, linhaPreco: 9 }
-};
-
-// ========================= CÁLCULO DE ORÇAMENTO =========================
-function calcularOrcamento(chapas) {
-  const resultados = [];
-  if (!chapas || !chapas.length) return resultados;
-
-  chapas.forEach(chapa => {
-    const mat = MATERIAIS[chapa.material];
-    if (!mat) return;
-
-    chapa.pecas.forEach(peca => {
-      // escreve inputs corretos na planilha
-      _preencherInputsCalcParaPeca(mat, chapa, peca);
-
-      // força recálculo para que as fórmulas (coluna L etc.) sejam atualizadas
-      SpreadsheetApp.flush();
-
-      // lê o preço atualizado relativo a esse material (coluna L = 12)
-      const precoUnitario = parseFloat(SHEET_CALC.getRange(mat.linhaPreco, 12).getValue()) || 0;
-      // (opcional) se precisar do total na planilha leia M = col 13
-      // const precoTotalPlanilha = parseFloat(SHEET_CALC.getRange(mat.linhaPreco, 13).getValue()) || 0;
-
-      const adicionaisPorUnidade = parseFloat(peca.adicionaisTotal) || 0;
-      const precoUnitarioFinal = precoUnitario + adicionaisPorUnidade;
-      const quantidade = parseFloat(peca.numPecasLote) || 0;
-      const precoTotalFinal = precoUnitarioFinal * quantidade;
-
-      resultados.push({
-        descricao: peca.descricao,
-        codigo: peca.codigo,
-        quantidade: quantidade,
-        precoUnitario: precoUnitarioFinal,
-        precoTotal: precoTotalFinal
-      });
-    });
-  });
-
-  // tratar conjuntos (mantendo sua lógica, mas lendo preço quando necessário)
-  const agrupados = [];
-  chapas.forEach(chapa => {
-    if (!chapa.isConjunto) return;
-    const mat = MATERIAIS[chapa.material];
-    if (!mat) return;
-
-    let somaTotal = 0;
-    chapa.pecas.forEach(p => {
-      const qtd = parseFloat(p.numPecasLote) || 0;
-
-      const encontrado = resultados.find(r =>
-        r.descricao === p.descricao &&
-        r.codigo === p.codigo &&
-        r.quantidade === qtd
-      );
-
-      if (encontrado) {
-        somaTotal += encontrado.precoTotal;
-        const index = resultados.indexOf(encontrado);
-        if (index > -1) resultados.splice(index, 1);
-      } else {
-        // fallback: escreve inputs específicos para essa peça, força recálculo e lê preço
-        try {
-          _preencherInputsCalcParaPeca(mat, chapa, p);
-          SpreadsheetApp.flush();
-          const precoUnitario = parseFloat(SHEET_CALC.getRange(mat.linhaPreco, 12).getValue()) || 0;
-          const adicionais = parseFloat(p.adicionaisTotal) || 0;
-          somaTotal += (precoUnitario + adicionais) * qtd;
-        } catch (e) {
-          Logger.log("Erro fallback conjunto: " + e);
-        }
-      }
-    });
-
-    const descricaoConj = chapa.descricaoConjunto || "Conjunto";
-    const codigoConj = chapa.codigoConjunto || "";
-    const qtdConj = parseFloat(chapa.quantidadeConjunto) || 1;
-
-    agrupados.push({
-      descricao: descricaoConj,
-      codigo: codigoConj,
-      quantidade: qtdConj,
-      precoUnitario: somaTotal,
-      precoTotal: somaTotal * qtdConj
-    });
-  });
-
-  return resultados.concat(agrupados);
 }
 
 // ========================= PREVIEW DE ORÇAMENTO =========================
@@ -613,7 +420,7 @@ function calcularPreviewOrcamento(dados) {
 
 // ========================= CLIENTES =========================
 function getTodosClientes() {
-  const dados = SHEET_CLIENTES.getDataRange().getValues();
+  const dados = SheetCache.getData(SHEET_CLIENTES);
   const clientes = [];
   for (let i = 1; i < dados.length; i++) {
     clientes.push({
@@ -629,7 +436,7 @@ function getTodosClientes() {
 }
 
 function salvarClienteSeNovo(cliente) {
-  const dados = SHEET_CLIENTES.getDataRange().getValues();
+  const dados = SheetCache.getData(SHEET_CLIENTES);
   for (let i = 1; i < dados.length; i++) {
     if (dados[i][0].toString().trim().toLowerCase() === cliente.nome.trim().toLowerCase()) {
       // Atualiza nomeAbreviado se ainda não estiver preenchido
@@ -640,6 +447,7 @@ function salvarClienteSeNovo(cliente) {
     }
   }
   SHEET_CLIENTES.appendRow([cliente.nome, cliente.cpf, cliente.endereco, cliente.telefone, cliente.email, cliente.nomeAbreviado || ""]);
+  SheetCache.invalidate(SHEET_CLIENTES);
 }
 
 // ========================= FORNECEDORES (mesma estrutura de clientes: nome, cpf, endereco, telefone, email) =========================
@@ -657,7 +465,7 @@ function getSheetFornecedores() {
 function getTodosFornecedores() {
   var sheet = SHEET_FORNECEDORES || ss.getSheetByName("Cadastro de Fornecedores");
   if (!sheet) return [];
-  var dados = sheet.getDataRange().getValues();
+  var dados = SheetCache.getData(sheet);
   var lista = [];
   for (var i = 1; i < dados.length; i++) {
     lista.push({
@@ -673,7 +481,7 @@ function getTodosFornecedores() {
 
 function salvarFornecedorSeNovo(fornecedor) {
   var sheet = getSheetFornecedores();
-  var dados = sheet.getDataRange().getValues();
+  var dados = SheetCache.getData(sheet);
   var nome = (fornecedor.nome || "").trim();
   if (!nome) return;
   for (var i = 1; i < dados.length; i++) {
@@ -686,6 +494,7 @@ function salvarFornecedorSeNovo(fornecedor) {
     fornecedor.telefone || "",
     fornecedor.email || ""
   ]);
+  SheetCache.invalidate(sheet);
 }
 
 // ========================= PASTAS =========================
@@ -1157,7 +966,7 @@ function detectarProximoIndice(data, iniciais) {
   try {
     if (!data || !iniciais) return "a";
     
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     if (!sheetProj) return "a";
     
     const lastRow = sheetProj.getLastRow();
@@ -1447,11 +1256,11 @@ function gerarPdfOrcamento(
       numeroSequencial = (dadosFormularioCompleto && dadosFormularioCompleto.numeroSequencial != null && dadosFormularioCompleto.numeroSequencial !== "") ? dadosFormularioCompleto.numeroSequencial : "—";
     } else if (sobrescreverVersao) {
       // Prioridade: valor que está NA PLANILHA (o que o usuário editou manualmente), depois formulário, depois incrementar.
-      const sheetProj = ss.getSheetByName("Projetos");
+      const sheetProj = SHEET_PROJ;
       const linhaProj = sheetProj ? findRowByColumnValue(sheetProj, "PROJETO", codigoProjeto) : null;
 
       // 1) Ler da aba Pedidos (coluna Nº / NUMERO_SEQUENCIAL) — onde o usuário costuma editar manualmente
-      var sheetPed = ss.getSheetByName("Pedidos");
+      var sheetPed = SHEET_PED;
       if (sheetPed && sheetPed.getLastRow() >= 2) {
         var linhaPed = findRowByColumnValue(sheetPed, "PROJETO", codigoProjeto);
         if (linhaPed) {
@@ -2119,7 +1928,7 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     try {
       const linha = typeof linhaOuKey === "number" ? linhaOuKey : parseInt(linhaOuKey, 10);
       if (linha >= 2) {
-        const sheetProj = ss.getSheetByName("Projetos");
+        const sheetProj = SHEET_PROJ;
         if (sheetProj) {
           const headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
           let colIdx = headers.indexOf("LINK ORDEM DE PRODUÇÃO");
@@ -2290,7 +2099,7 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
     try {
       var linhaNum = typeof linhaOuKey === "number" ? linhaOuKey : parseInt(linhaOuKey, 10);
       if (linhaNum >= 2) {
-        var sheetProj = ss.getSheetByName("Projetos");
+        var sheetProj = SHEET_PROJ;
         if (sheetProj) {
           var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
           var colIdx = headers.indexOf("LINK ORDEM DE COMPRA");
@@ -2382,7 +2191,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
   try {
     // ── Proposta versionada (_v2, _v3…): armazenar na linha base sem criar nova linha ──
     if (codigoProjeto && /_v\d+$/.test(codigoProjeto)) {
-      const sheetProj = ss.getSheetByName("Projetos");
+      const sheetProj = SHEET_PROJ;
       if (sheetProj) {
         const codigoBase = codigoProjeto.replace(/_v\d+$/, "");
         let linhaBase = 0;
@@ -2443,7 +2252,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
     });
 
     // usar: Projetos 
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     // 1) Se o formulário enviou a linha do projeto carregado, usar essa linha (evita duplicar ao gerar PDF)
@@ -2598,7 +2407,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
       });
       const observacoesKanbanFallback = (observacoes && observacoes.observacoesKanban != null) ? String(observacoes.observacoesKanban).trim() : "";
       const prazoPropostaFallback = (observacoes && observacoes.prazoProposta != null) ? String(observacoes.prazoProposta).trim() : "";
-      const sheetProj = ss.getSheetByName("Projetos");
+      const sheetProj = SHEET_PROJ;
       if (sheetProj) {
         var dadosObjFallback = {
           "CLIENTE": cliente.nome || "",
@@ -2686,7 +2495,7 @@ function getDashboardStats() {
   const logs = SHEET_LOGS ? Math.max(SHEET_LOGS.getLastRow() - 1, 0) : 0;
 
   // Verifica se existe aba Projetos unificada
-  const sheetProj = ss.getSheetByName("Projetos");
+  const sheetProj = SHEET_PROJ;
   let projetos = 0;
   let kanban = 0;
 
@@ -2697,7 +2506,7 @@ function getDashboardStats() {
 
     if (totalProjetos > 0) {
       try {
-        const dados = sheetProj.getDataRange().getValues();
+        const dados = SheetCache.getData(sheetProj);
         const headers = dados[0];
         Logger.log("getDashboardStats: Headers da aba Projetos: %s", JSON.stringify(headers));
         const idxStatusOrc = _findHeaderIndex(headers, "STATUS_ORCAMENTO");
@@ -2835,7 +2644,7 @@ function getUltimasAtividades() {
         if (dataVal != null && dataVal !== "") {
           if (Object.prototype.toString.call(dataVal) === "[object Date]") {
             try {
-              dataStr = Utilities.formatDate(dataVal, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "UTC", "dd/MM/yyyy HH:mm");
+              dataStr = Utilities.formatDate(dataVal, ss.getSpreadsheetTimeZone() || "UTC", "dd/MM/yyyy HH:mm");
             } catch (e) { dataStr = String(dataVal); }
           } else {
             dataStr = String(dataVal);
@@ -2878,19 +2687,36 @@ function getUltimasAtividades() {
 }
 
 // --- helper para achar índice de cabeçalho de forma robusta ---
+
+// Memoization cache for _normalizeHeader (avoids repeated string manipulation)
+const _normalizeCache = {};
 function _normalizeHeader(s) {
-  return String(s || '')
+  const key = String(s || '');
+  if (_normalizeCache[key] !== undefined) return _normalizeCache[key];
+  const result = key
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
     .replace(/[^a-z0-9]/g, ''); // remove tudo que não é alfanumérico
+  _normalizeCache[key] = result;
+  return result;
 }
 
+// Per-headers-array cache for _findHeaderIndex results.
+// Key = normalized header array joined string; value = map of normalizedName -> index.
+const _headerIndexCache = {};
 function _findHeaderIndex(headers, name) {
-  const target = _normalizeHeader(name);
-  for (let i = 0; i < headers.length; i++) {
-    if (_normalizeHeader(headers[i]) === target) return i;
+  // Build a lightweight key from the headers array to enable caching.
+  const arrayKey = headers.length + ':' + headers.slice(0, 5).map(_normalizeHeader).join(',');
+  let indexMap = _headerIndexCache[arrayKey];
+  if (!indexMap) {
+    indexMap = {};
+    for (let i = 0; i < headers.length; i++) {
+      indexMap[_normalizeHeader(headers[i])] = i;
+    }
+    _headerIndexCache[arrayKey] = indexMap;
   }
-  return -1;
+  const target = _normalizeHeader(name);
+  return indexMap[target] !== undefined ? indexMap[target] : -1;
 }
 
 /** Nomes das colunas da aba Projetos (ordem lógica; a escrita usa índice por cabeçalho) */
@@ -2933,6 +2759,10 @@ function _escreverLinhaProjetosPorCabecalho(sheetProj, linha, dadosObj, isUpdate
   var lastCol = sheetProj.getLastColumn();
   var headers = sheetProj.getRange(1, 1, 1, lastCol).getValues()[0];
   var rowToWrite = isUpdate ? linha : (sheetProj.getLastRow() + 1);
+
+  // Collect all {colIndex (0-based): value} pairs before writing
+  var writes = {}; // colIndex -> value
+
   for (var campo in dadosObj) {
     if (!Object.prototype.hasOwnProperty.call(dadosObj, campo)) continue;
     var idx = _findHeaderIndexProjetos(headers, campo);
@@ -2942,15 +2772,36 @@ function _escreverLinhaProjetosPorCabecalho(sheetProj, linha, dadosObj, isUpdate
       if (normCol === "condicoesdepagamento") idx = -1;
     }
     if (idx < 0) {
+      // Create new column header
       var newCol = sheetProj.getLastColumn() + 1;
       var headerName = PROJETOS_HEADER_DISPLAY[campo] || campo;
       sheetProj.getRange(1, newCol).setValue(headerName);
       headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
       idx = headers.length - 1;
     }
-    var val = dadosObj[campo] != null ? dadosObj[campo] : "";
-    sheetProj.getRange(rowToWrite, idx + 1).setValue(val);
+    writes[idx] = dadosObj[campo] != null ? dadosObj[campo] : "";
   }
+
+  // Batch-write all collected values in one setValues() call
+  var colIndices = Object.keys(writes).map(Number);
+  if (colIndices.length === 0) return;
+  var minCol = Math.min.apply(null, colIndices);
+  var maxCol = Math.max.apply(null, colIndices);
+  var numCols = maxCol - minCol + 1;
+
+  // Read existing cells in the range to avoid overwriting un-touched columns
+  var rowArr;
+  if (isUpdate && numCols > colIndices.length) {
+    rowArr = sheetProj.getRange(rowToWrite, minCol + 1, 1, numCols).getValues()[0];
+  } else {
+    rowArr = new Array(numCols).fill("");
+  }
+
+  for (var k = 0; k < colIndices.length; k++) {
+    rowArr[colIndices[k] - minCol] = writes[colIndices[k]];
+  }
+  sheetProj.getRange(rowToWrite, minCol + 1, 1, numCols).setValues([rowArr]);
+  SheetCache.invalidate(sheetProj);
 }
 
 function normalizePrazo(value) {
@@ -2961,7 +2812,7 @@ function normalizePrazo(value) {
       return value.toISOString(); // formato ISO é seguro para serialização
     } catch (e) {
       try { // fallback: format usando timezone da planilha
-        const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'UTC';
+        const tz = ss.getSpreadsheetTimeZone() || 'UTC';
         return Utilities.formatDate(value, tz, "yyyy-MM-dd'T'HH:mm:ss'Z'");
       } catch (e2) {
         return String(value);
@@ -3004,11 +2855,11 @@ function getKanbanData() {
     };
 
     // Verifica se existe a aba Projetos unificada
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
 
     if (sheetProj) {
       // === NOVA LÓGICA: Aba Projetos Unificada ===
-      const valsProj = sheetProj.getDataRange().getValues();
+      const valsProj = SheetCache.getData(sheetProj);
       if (valsProj && valsProj.length > 1) {
         const headersProj = valsProj[0];
         const idxCliente = _findHeaderIndex(headersProj, "CLIENTE");
@@ -3111,7 +2962,7 @@ function getKanbanData() {
     // --- Logs (mapa) - Processa logs para ambas estruturas ---
     const mapaLogs = {};
     if (typeof SHEET_LOGS !== 'undefined' && SHEET_LOGS) {
-      const valsLogs = SHEET_LOGS.getDataRange().getValues();
+      const valsLogs = SheetCache.getData(SHEET_LOGS);
       if (valsLogs && valsLogs.length > 0) {
         const headersLogs = valsLogs[0];
         const idxClienteL = _findHeaderIndex(headersLogs, "Cliente");
@@ -3264,7 +3115,7 @@ function getAvaliacoesPorUsuario(token) {
 
 // Retorna avaliações já salvas
 function getAvaliacoesSalvas(token) {
-  const values = SHEET_AVAL.getDataRange().getValues();
+  const values = SheetCache.getData(SHEET_AVAL);
   if (values.length < 2) return [];
   const headers = values[0];
   return values.slice(1).map(row => {
@@ -4056,7 +3907,7 @@ function exportarAvaliacoesPdf() {
 function getProjetos() {
   try {
     // Tenta usar aba Projetos primeiro
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) {
@@ -4073,7 +3924,7 @@ function getProjetos() {
       return [];
     }
 
-    const values = targetSheet.getRange(1, 1, lastRow, lastCol).getValues();
+    const values = SheetCache.getData(targetSheet);
     if (!values || values.length === 0) {
       Logger.log('getProjetos: getValues retornou vazio ou null');
       return [];
@@ -4083,7 +3934,7 @@ function getProjetos() {
     Logger.log('getProjetos: Headers count=%s, first few=%s', headers.length, headers.slice(0, 5).join(','));
 
     // Formata timezone para datas
-    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'UTC';
+    const tz = ss.getSpreadsheetTimeZone() || 'UTC';
 
     const data = values.slice(1).map((row, index) => {
       let obj = {};
@@ -4292,9 +4143,9 @@ var PEDIDOS_HEADER_ALIASES = {
  */
 function getPedidosSheetMap() {
   try {
-    var sheet = ss.getSheetByName("Pedidos");
+    var sheet = SHEET_PED;
     if (!sheet || sheet.getLastRow() < 2) return {};
-    var data = sheet.getDataRange().getValues();
+    var data = SheetCache.getData(sheet);
     var headers = data[0];
     var idx = {};
     function findCol(headerName) {
@@ -4426,6 +4277,7 @@ function atualizarPedidoNaPlanilha(projeto, dadosAtualizacao, dadosProjeto) {
         newRow.push(val == null ? "" : val);
       }
       sheet.appendRow(newRow);
+      SheetCache.invalidate(sheet);
     }
 
     // Sincronizar com a aba Projetos: alterações feitas na página/planilha de pedidos também atualizam a linha do projeto
@@ -4436,7 +4288,7 @@ function atualizarPedidoNaPlanilha(projeto, dadosAtualizacao, dadosProjeto) {
         if (!isNaN(parsed) && parsed >= 2) linhaProj = parsed;
       }
       if (linhaProj == null && projeto) {
-        var sheetProj = ss.getSheetByName("Projetos");
+        var sheetProj = SHEET_PROJ;
         if (sheetProj) linhaProj = findRowByColumnValue(sheetProj, "PROJETO", projeto);
       }
       if (linhaProj >= 2) {
@@ -4654,7 +4506,7 @@ function backfillPedidosEmLote(pedidos, pedidosSheetMap) {
  */
 function ensurePedidoRow(linhaProjetos) {
   try {
-    var sheetProj = ss.getSheetByName("Projetos");
+    var sheetProj = SHEET_PROJ;
     if (!sheetProj || sheetProj.getLastRow() < linhaProjetos) return;
     var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
     var row = sheetProj.getRange(linhaProjetos, 1, 1, sheetProj.getLastColumn()).getValues()[0];
@@ -4955,7 +4807,7 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
     }
     linha = rowNum;
 
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     if (!sheetProj) {
       throw new Error("Aba 'Projetos' não encontrada");
     }
@@ -5162,7 +5014,7 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
     if (ehConversaoNova) {
       try {
         const hoje = new Date();
-        const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "America/Sao_Paulo";
+        const tz = ss.getSpreadsheetTimeZone() || "America/Sao_Paulo";
         const dataCompetenciaStr = Utilities.formatDate(hoje, tz, "dd/MM/yyyy");
         // Todo projeto convertido em pedido tem primeiro status = Preparação MP / CAD / CAM (coluna STATUS_PEDIDO permanece na Projetos)
         var idxStatusPedido = acharColuna("STATUS_PEDIDO");
@@ -5242,6 +5094,7 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
       }
     }
     
+    SheetCache.invalidate(sheetProj);
     return { sucesso: true };
   } catch (e) {
     Logger.log("Erro ao atualizar projeto: " + e.message);
@@ -5261,7 +5114,7 @@ function excluirProjeto(linha) {
     }
 
     // Tenta usar aba Projetos primeiro
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) {
@@ -5269,6 +5122,7 @@ function excluirProjeto(linha) {
     }
 
     targetSheet.deleteRow(linha);
+    SheetCache.invalidate(targetSheet);
     return { success: true };
   } catch (e) {
     Logger.log('excluirProjeto error (linha=%s): %s', linha, e.message);
@@ -5286,7 +5140,7 @@ function informarValorNFProjeto(linha, valorNF) {
   try {
     linha = Number(linha);
     if (!linha || linha < 2) throw new Error("Linha inválida.");
-    var sheetProj = ss.getSheetByName("Projetos");
+    var sheetProj = SHEET_PROJ;
     if (!sheetProj || sheetProj.getLastRow() < linha) throw new Error("Projeto não encontrado.");
     var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
     var idxJson = headers.indexOf("JSON_DADOS");
@@ -5302,6 +5156,7 @@ function informarValorNFProjeto(linha, valorNF) {
     parsed.dados.observacoes.valorNF = valorNF == null ? "" : String(valorNF).trim();
     var newJson = JSON.stringify(parsed);
     sheetProj.getRange(linha, idxJson + 1).setValue(newJson);
+    SheetCache.invalidate(sheetProj);
     var obj = {};
     headers.forEach(function (h, i) { obj[h] = row[i]; });
     obj["JSON_DADOS"] = newJson;
@@ -5329,7 +5184,7 @@ function informarDataEntregaProjeto(linha, dataEntrega) {
   try {
     linha = Number(linha);
     if (!linha || linha < 2) throw new Error("Linha inválida.");
-    var sheetProj = ss.getSheetByName("Projetos");
+    var sheetProj = SHEET_PROJ;
     if (!sheetProj || sheetProj.getLastRow() < linha) throw new Error("Projeto não encontrado.");
     var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
     var idxJson = headers.indexOf("JSON_DADOS");
@@ -5345,6 +5200,7 @@ function informarDataEntregaProjeto(linha, dataEntrega) {
     parsed.dados.observacoes.dataEntrega = dataEntrega == null ? "" : String(dataEntrega).trim();
     var newJson = JSON.stringify(parsed);
     sheetProj.getRange(linha, idxJson + 1).setValue(newJson);
+    SheetCache.invalidate(sheetProj);
     var obj = {};
     headers.forEach(function (h, i) { obj[h] = row[i]; });
     obj["JSON_DADOS"] = newJson;
@@ -5371,7 +5227,7 @@ function adicionarNovoProjetoNaPlanilha(projeto) {
     Logger.log('adicionarNovoProjetoNaPlanilha: Iniciando para projeto %s', projeto.PROJETO);
 
     // Tenta usar aba Projetos primeiro
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) {
@@ -5441,7 +5297,7 @@ function getProdutos() {
   try {
     if (!SHEET_PRODUTOS) throw new Error("Aba 'Relação de produtos' não encontrada");
 
-    const values = SHEET_PRODUTOS.getDataRange().getDisplayValues();
+    const values = SheetCache.getDisplayData(SHEET_PRODUTOS);
     if (values.length === 0) return { headers: [], data: [] };
 
     const headers = values[0];
@@ -5477,11 +5333,11 @@ function atualizarStatusKanban(cliente, projeto, novoStatus) {
     let processosStr = '';
 
     // Verifica se existe a aba Projetos unificada
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
 
     if (sheetProj) {
       // === NOVA LÓGICA: Atualiza STATUS_PEDIDO na aba Projetos ===
-      const dadosProj = sheetProj.getDataRange().getValues();
+      const dadosProj = SheetCache.getData(sheetProj);
       if (!dadosProj || dadosProj.length < 2) return;
 
       const headers = dadosProj[0];
@@ -5535,6 +5391,7 @@ function atualizarStatusKanban(cliente, projeto, novoStatus) {
           // Atualiza STATUS_PEDIDO: ao converter em pedido o primeiro status é sempre Preparação MP / CAD / CAM
           const statusPedidoFinal = !statusAntigo ? "Processo de Preparação MP / CAD / CAM" : novoStatus;
           sheetProj.getRange(i + 1, idxStatusPed + 1).setValue(statusPedidoFinal);
+          SheetCache.invalidate(sheetProj);
           break;
         }
       }
@@ -5582,7 +5439,7 @@ function _parseCodigoProjetoParaOrdenacao(codigo) {
  * os existentes ficam em ordem por data e todo novo projeto aparece no topo.
  */
 function ordenarPlanilhaProjetosPorCodigo() {
-  var sheet = ss.getSheetByName("Projetos");
+  var sheet = SHEET_PROJ;
   if (!sheet) {
     Logger.log("ordenarPlanilhaProjetosPorCodigo: Aba Projetos não encontrada");
     throw new Error("Aba 'Projetos' não encontrada.");
@@ -5637,7 +5494,7 @@ function verificarProjetoDuplicado(numeroProjeto) {
     }
 
     // Busca na aba Projetos (se existir)
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     if (sheetProj) {
       const linha = findRowByColumnValue(sheetProj, "PROJETO", numeroProjeto);
       if (linha) {
@@ -5671,7 +5528,7 @@ function salvarRascunho(nomeRascunho, dados) {
       // Se existe e não é um rascunho sendo editado, retorna erro
       if (validacao.duplicado) {
         // Verifica se é edição do mesmo projeto (mesma linha)
-        const sheetProj = ss.getSheetByName("Projetos");
+        const sheetProj = SHEET_PROJ;
         const targetSheet = sheetProj;
         const linhaExistente = findRowByColumnValue(targetSheet, "PROJETO", codigoProjeto);
 
@@ -5716,7 +5573,7 @@ function salvarRascunho(nomeRascunho, dados) {
       dados: dados
     });
 
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) throw new Error("Nenhuma aba de projetos encontrada");
@@ -5760,7 +5617,7 @@ function salvarRascunho(nomeRascunho, dados) {
 // Usada quando o usuário quer atualizar um rascunho sem calcular o orçamento
 function atualizarRascunho(linhaOuKey, dados) {
   try {
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) throw new Error("Nenhuma aba de projetos encontrada");
@@ -5952,7 +5809,7 @@ function salvarComoPedido(dados) {
       Logger.log("Aviso ao calcular total em salvarComoPedido: " + e.message);
     }
 
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     if (!sheetProj) throw new Error("Aba Projetos não encontrada");
 
     if (dados.produtosCadastrados && Array.isArray(dados.produtosCadastrados)) {
@@ -6013,7 +5870,7 @@ function salvarComoPedido(dados) {
 function carregarRascunho(linhaOuKey) {
   try {
     // Decide qual aba usar
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) throw new Error("Nenhuma aba de projetos encontrada");
@@ -6176,7 +6033,7 @@ function carregarRascunho(linhaOuKey) {
 
   if (clienteNome) {
     try {
-      const dadosClientes = SHEET_CLIENTES.getDataRange().getValues();
+      const dadosClientes = SheetCache.getData(SHEET_CLIENTES);
       for (let i = 1; i < dadosClientes.length; i++) {
         const rowCli = dadosClientes[i];
         if (rowCli[0] && String(rowCli[0]).trim().toLowerCase() === clienteNome.trim().toLowerCase()) {
@@ -6240,7 +6097,7 @@ function carregarRascunho(linhaOuKey) {
 function getListaRascunhos(incluirEnviados) {
   try {
     // Decide qual aba usar
-    const sheetProj = ss.getSheetByName("Projetos");
+    const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
 
     if (!targetSheet) throw new Error("Nenhuma aba de projetos");
@@ -6325,7 +6182,7 @@ function getListaRascunhos(incluirEnviados) {
 }
 
 function deletarRascunho(linhaOuKey) {
-  const sheetProj = ss.getSheetByName("Projetos");
+  const sheetProj = SHEET_PROJ;
   try {
     if (!sheetProj) throw new Error("Aba 'Projetos' não encontrada");
 
@@ -6653,7 +6510,7 @@ function registrarRetornoVeiculo(rowNumber) {
 
 function getConfiguracoesApresentacao() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Use global ss (SpreadsheetApp.openById already called at startup)
     let sheet = ss.getSheetByName('Configuracoes');
 
     if (!sheet) {
@@ -6692,7 +6549,7 @@ function getConfiguracoesApresentacao() {
 
 function salvarConfiguracoesApresentacao(config) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Use global ss (SpreadsheetApp.openById already called at startup)
     let sheet = ss.getSheetByName('Configuracoes');
 
     if (!sheet) {
@@ -6721,7 +6578,7 @@ function salvarConfiguracoesApresentacao(config) {
 // Atualizar função de mensagem para incluir destaque
 function salvarMensagemApresentacao(texto, cor, tamanho, destaque) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Use global ss (SpreadsheetApp.openById already called at startup)
     let sheet = ss.getSheetByName('MensagensApresentacao');
 
     if (!sheet) {
@@ -6742,7 +6599,7 @@ function salvarMensagemApresentacao(texto, cor, tamanho, destaque) {
 
 function getMensagensApresentacao() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Use global ss (SpreadsheetApp.openById already called at startup)
     const sheet = ss.getSheetByName('MensagensApresentacao');
 
     if (!sheet || sheet.getLastRow() <= 1) {
@@ -6841,7 +6698,7 @@ function verificarOrcamentosPendentesNotificacao() {
 
 function deletarMensagemApresentacao(id) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Use global ss (SpreadsheetApp.openById already called at startup)
     const sheet = ss.getSheetByName('MensagensApresentacao');
 
     // Se a planilha não existe, retorna erro
@@ -6899,34 +6756,4 @@ function limparTodasMensagensApresentacao() {
   } catch (e) {
     return { success: false, error: e.message };
   }
-}
-
-/**
- * Menu exibido ao abrir a planilha. Inclui opção para ordenar a aba Projetos por código.
- */
-function onOpen() {
-  try {
-    var ui = SpreadsheetApp.getUi();
-    ui.createMenu('TUBA')
-      .addItem('Ordenar Projetos por código (permanente)', 'ordenarPlanilhaProjetosPorCodigo')
-      .addSeparator()
-      .addItem('Migrar dados de pedido (Projetos → Pedidos)', 'executarMigracaoProjetosParaPedidos')
-      .addToUi();
-  } catch (e) {
-    Logger.log('onOpen menu TUBA: ' + (e && e.message));
-  }
-}
-
-/**
- * Executa migrarDadosPedidoProjetosParaPedidos e exibe o resultado em um alerta.
- * Use antes de excluir as colunas de pedido da aba Projetos.
- */
-function executarMigracaoProjetosParaPedidos() {
-  var ui = SpreadsheetApp.getUi();
-  var msg = "Migração: copiando para Pedidos os dados preenchidos em Projetos (onde Pedidos está vazio).\nNão sobrescreve dados já existentes em Pedidos.";
-  if (ui.alert('Migrar dados Projetos → Pedidos', msg, ui.ButtonSet.OK_CANCEL) !== ui.Button.OK) return;
-  var r = migrarDadosPedidoProjetosParaPedidos();
-  var texto = "Linhas de Pedidos atualizadas: " + r.atualizados + "\nProjetos que ganharam linha em Pedidos: " + r.semLinhaPedidos;
-  if (r.erros && r.erros.length > 0) texto += "\n\nErros:\n" + r.erros.slice(0, 10).join("\n") + (r.erros.length > 10 ? "\n... e mais " + (r.erros.length - 10) : "");
-  ui.alert("Migração concluída", texto, ui.ButtonSet.OK);
 }
