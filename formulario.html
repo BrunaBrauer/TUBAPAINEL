@@ -443,6 +443,12 @@
                     ⚠️ <strong>Você está criando um NOVO projeto.</strong> O projeto original será mantido.
                 </div>
 
+                <!-- RF003: Aviso de código de projeto já existente -->
+                <div id="bannerProjetoExistente"
+                    style="display:none; background:#fdecea; border:1px solid #e53935; border-radius:6px; padding:10px 14px; margin-bottom:10px; color:#b71c1c;">
+                    🚫 <strong>Este código de projeto já existe!</strong> Se continuar, irá sobrescrever o projeto existente.
+                </div>
+
                 <div class="row">
                     <div class="col">
                         <label>Data (ANO + MES + DIA):</label>
@@ -681,10 +687,7 @@
 
                 <div class="row" style="margin-top:8px;">
                     <div class="col">
-                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">Enviar
-                            Arquivos</button>
-                        <button type="button" id="btnCriarPasta01IN" class="secondary"
-                            onclick="criarPasta01INAction()">📁 Criar pasta 01_IN</button>
+                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">📁 Criar/Enviar para pasta 01_IN</button>
                         <button type="button" id="btnAbrirPasta01IN" class="secondary"
                             onclick="abrirPasta01INAction()">🔗 Abrir pasta 01_IN</button>
                         <div id="arquivosStatus" class="note"></div>
@@ -734,7 +737,7 @@
                         Salvar</button>
                     <button type="button" id="btnPreviewPdf" onclick="calcular(false, true)"
                         style="background:#354b75; color:white;">👁 Ver Prévia do PDF</button>
-                    <button type="button" id="btnGerar" onclick="calcular()" style="background:#59963d; color:white;">📄
+                    <button type="button" id="btnGerar" onclick="calcularComVerificacao()" style="background:#59963d; color:white;">📄
                         Finalizar e Gerar Proposta</button>
                 </div>
 
@@ -760,6 +763,14 @@
         var _originalProjetoData = null;
         var _originalProjetoIndice = null;
         var _originalProjetoIniciais = null;
+
+        // RF002b: Flag para saber se o índice foi alterado manualmente pelo usuário (ou carregado de projeto existente)
+        // false = índice foi calculado pelo sistema (detectarProximoIndice); recalcula se data/iniciais mudar
+        // true  = índice foi digitado pelo usuário ou veio de projeto carregado; preserva mesmo se data/iniciais mudar
+        var _indiceManualmenteAlterado = false;
+
+        // RF003: Timer de debounce para verificação visual de código de projeto existente
+        var _verificarDuplicadoTimer = null;
 
         // RF002: Nomes dos processos (mapeamento sigla → nome completo)
         var _NOMES_PROCESSOS = { MP: "Matéria Prima", CL: "Corte Laser", D: "Dobra", S: "Solda", Pin: "Pintura", CAD: "Desenvolvimento CAD", ACB: "Acabamento" };
@@ -870,6 +881,7 @@
             previewDetalhamento:      document.getElementById("previewDetalhamento"),
             previewLoading:           document.getElementById("previewLoading"),
             bannerNovoProjeto:        document.getElementById("bannerNovoProjeto"),
+            bannerProjetoExistente:   document.getElementById("bannerProjetoExistente"),
             rascunhoBusca:            document.getElementById("rascunhoBusca"),
             rascunhoSelectKey:        document.getElementById("rascunhoSelectKey"),
             rascunhosList:            document.getElementById("rascunhosList"),
@@ -880,7 +892,6 @@
             versaoPickerContainer:    document.getElementById("versaoPickerContainer"),
             modoVersaoPdfNova:        document.getElementById("modoVersaoPdfNova"),
             btnCarregarRascunho:      document.getElementById("btnCarregarRascunho"),
-            btnCriarPasta01IN:        document.getElementById("btnCriarPasta01IN"),
             btnAbrirPasta01IN:        document.getElementById("btnAbrirPasta01IN"),
             btnEnviarArquivos:        document.getElementById("btnEnviarArquivos"),
             btnPreviewPdf:            document.getElementById("btnPreviewPdf"),
@@ -1492,13 +1503,15 @@
             if (preserveIndice === true) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                 return;
             }
 
-            // Índice diferente de "a" e não vazio: usuário alterou manualmente (ex.: b, c, h)
-            if (indiceAtual !== "" && indiceAtual.toLowerCase() !== "a") {
+            // Índice alterado manualmente pelo usuário (ou carregado de projeto existente): preservar
+            if (_indiceManualmenteAlterado) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                 return;
             }
 
@@ -1511,6 +1524,7 @@
                         const iniciaisAtual = _el.projetoIniciais.value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         _el.obsProjeto.value = codigoProjeto;
+                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                     })
                     .withFailureHandler(function (err) {
                         _el.projetoIndice.value = "a";
@@ -1518,12 +1532,14 @@
                         const iniciaisAtual = _el.projetoIniciais.value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         _el.obsProjeto.value = codigoProjeto;
+                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                     })
                     .detectarProximoIndice(data, iniciais);
             } else {
                 const indice = _el.projetoIndice.value || "a";
                 const codigoProjeto = data + indice + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
             }
         }
 
@@ -1531,6 +1547,7 @@
             _el[id].addEventListener("input", function () { atualizarCamposProjeto(); verificarMudancaCampoProjeto(); });
         });
         _el.projetoIndice.addEventListener("input", function () {
+            _indiceManualmenteAlterado = true;
             atualizarCamposProjeto(true);
             verificarMudancaCampoProjeto();
         });
@@ -1547,6 +1564,50 @@
             if (!banner) return;
             var mudou = (data !== _originalProjetoData) || (indice !== _originalProjetoIndice) || (iniciais !== _originalProjetoIniciais);
             banner.style.display = mudou ? "block" : "none";
+        }
+
+        // RF003: Comprimento mínimo de um código de projeto válido (YYMMDD + índice + iniciais = 6+1+2 = 9)
+        var _MIN_CODIGO_PROJETO = 9;
+
+        // RF003: Esconder aviso de duplicata e limpar destaque visual
+        function limparAvisoDuplicata() {
+            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "none";
+            if (_el.obsProjeto) _el.obsProjeto.style.border = "";
+        }
+
+        // RF003: Verificar em tempo real se o código de projeto já existe — com debounce de 600 ms
+        function verificarCodigoProjetoDuplicadoVisual(codigoProjeto) {
+            if (_verificarDuplicadoTimer) { clearTimeout(_verificarDuplicadoTimer); _verificarDuplicadoTimer = null; }
+
+            // Código muito curto → limpa aviso e para
+            if (!codigoProjeto || codigoProjeto.length < _MIN_CODIGO_PROJETO) {
+                limparAvisoDuplicata();
+                return;
+            }
+
+            // Mesmo código que foi carregado originalmente → não avisa (é a edição normal)
+            if (_originalProjetoData !== null &&
+                codigoProjeto === _originalProjetoData + _originalProjetoIndice + _originalProjetoIniciais) {
+                limparAvisoDuplicata();
+                return;
+            }
+
+            _verificarDuplicadoTimer = setTimeout(function () {
+                google.script.run
+                    .withSuccessHandler(function (result) {
+                        if (result && result.duplicado) {
+                            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "block";
+                            if (_el.obsProjeto) _el.obsProjeto.style.border = "2px solid #e53935";
+                        } else {
+                            limparAvisoDuplicata();
+                        }
+                    })
+                    .withFailureHandler(function (err) {
+                        console.warn("Verificação visual de duplicata falhou:", err);
+                        limparAvisoDuplicata();
+                    })
+                    .verificarProjetoDuplicado(codigoProjeto);
+            }, 600);
         }
 
         // RF006: Criar pasta 01_IN dentro da pasta do projeto
@@ -1908,6 +1969,7 @@
             _el.projetoData.value = projetoData;
             _el.projetoIndice.value = projetoIndice;
             _el.projetoIniciais.value = projetoIniciais;
+            _indiceManualmenteAlterado = true; // índice veio de projeto carregado — preservar
             atualizarCamposProjeto(true);
 
             // RF001: Armazenar valores originais dos campos do projeto ao carregar
@@ -1918,6 +1980,7 @@
             }
             // Ocultar banner (limpar estado anterior)
             if (_el.bannerNovoProjeto) _el.bannerNovoProjeto.style.display = "none";
+            limparAvisoDuplicata();
 
             // 2. Cliente (campo único: nome = busca ou novo)
             _el.clienteNome.value = cliente.nome || "";
@@ -2271,8 +2334,10 @@
             _originalProjetoData = null;
             _originalProjetoIndice = null;
             _originalProjetoIniciais = null;
+            _indiceManualmenteAlterado = false; // permitir recálculo automático no novo formulário
             var bannerReset = _el.bannerNovoProjeto;
             if (bannerReset) bannerReset.style.display = "none";
+            limparAvisoDuplicata();
 
             const today = new Date();
             _el.projetoData.value = String(today.getFullYear()).slice(2) +
@@ -2450,7 +2515,7 @@
                 if (!confirm("Salvar este projeto como PEDIDO?\n\nSerá gerada a proposta comercial em PDF e o projeto será registrado já como \"Convertido em Pedido\".")) return;
             }
             // Usa a mesma lógica de calcular(), gerando o PDF com status "convertido em pedido"
-            calcular(true);
+            calcularComVerificacao(true);
         }
 
         // Função de deletar rascunho (chama o Apps Script)
@@ -2514,6 +2579,39 @@
             const mes = String(d.getMonth() + 1).padStart(2, '0');
             const ano = d.getFullYear();
             return `${dia}/${mes}/${ano}`;
+        }
+
+        // RF003: Validar projeto duplicado antes de gerar/salvar (apenas para projetos novos, não carregados pelo formulário de busca)
+        function calcularComVerificacao(asPedido) {
+            asPedido = !!asPedido;
+            // Se o projeto foi carregado pelo formulário de busca (_originalProjetoData !== null),
+            // o usuário obviamente quer editar — não mostrar alerta de duplicata.
+            if (_originalProjetoData !== null) {
+                calcular(asPedido, false);
+                return;
+            }
+            const data = _el.projetoData.value.trim();
+            const indice = _el.projetoIndice.value.trim();
+            const iniciais = _el.projetoIniciais.value.trim();
+            if (!data || !indice || !iniciais) {
+                // Deixa calcular() lidar com a validação de campos obrigatórios
+                calcular(asPedido, false);
+                return;
+            }
+            const codigoProjeto = data + indice + iniciais;
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result && result.duplicado) {
+                        if (!confirm("⚠️ Este código de projeto já existe (" + codigoProjeto + ").\nDeseja sobrescrever?")) return;
+                    }
+                    calcular(asPedido, false);
+                })
+                .withFailureHandler(function (err) {
+                    // Se a verificação falhar, prosseguir sem bloquear o usuário
+                    console.warn("Verificação de projeto duplicado falhou; prosseguindo.", err);
+                    calcular(asPedido, false);
+                })
+                .verificarProjetoDuplicado(codigoProjeto);
         }
 
         function calcular(asPedido, apenasPreview) {
