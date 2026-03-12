@@ -1070,7 +1070,7 @@
                     </div>
                     <div class="form-group" style="margin-bottom:10px;">
                         <label style="font-size:13px;">Data de Entrega</label>
-                        <input type="text" id="infoPedidoDataEntrega" placeholder="dd/mm/aaaa" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
+                        <input type="text" id="infoPedidoDataEntrega" placeholder="dd/mm/yyyy" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
                     </div>
                     <div class="form-group" style="margin-bottom:10px;">
                         <label style="font-size:13px;">Observações do Pedido</label>
@@ -1079,7 +1079,7 @@
                 </div>
                 <div class="modal-actions">
                     <button type="button" id="infoPedidoBtnCancelar" class="btn btn-cancel" style="display:none;" onclick="infoPedidoCancelarEdicao()">Cancelar</button>
-                    <button type="button" id="infoPedidoBtnEditar" class="btn btn-ghost" onclick="infoPedidoModoEdicao()">✏️ Editar</button>
+                    <button type="button" id="infoPedidoBtnEditar" class="btn btn-ghost" aria-label="Editar informações do pedido" onclick="infoPedidoModoEdicao()">✏️ Editar</button>
                     <button type="button" id="infoPedidoBtnSalvar" class="btn btn-primary" style="display:none;" onclick="infoPedidoSalvar()">Salvar</button>
                     <button type="button" class="btn btn-cancel" onclick="fecharInfoPedidoModal()">Fechar</button>
                 </div>
@@ -1851,20 +1851,27 @@
                     renderInfoPedido(info, linha);
                 })
                 .withFailureHandler(function (err) {
-                    document.getElementById('infoPedidoConteudo').innerHTML = '<div style="color:red;">Erro ao carregar informações: ' + (err.message || err) + '</div>';
+                    var errMsg = (err && err.message) ? err.message : String(err || 'Erro desconhecido');
+                    var el = document.getElementById('infoPedidoConteudo');
+                    el.textContent = '';
+                    var div = document.createElement('div');
+                    div.style.color = 'red';
+                    div.textContent = 'Erro ao carregar informações: ' + errMsg;
+                    el.appendChild(div);
                 })
                 .getInformacoesPedido(linha);
         }
 
         function renderInfoPedido(info, linha) {
             if (!info) { document.getElementById('infoPedidoConteudo').innerHTML = '<div>Sem informações.</div>'; return; }
+            function escHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
             var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
             function row(label, value) {
-                return '<tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;color:#374151;width:45%;">' + label + '</td><td style="padding:5px 8px;color:#1f2937;">' + (value || '<span style="color:#9ca3af;">—</span>') + '</td></tr>';
+                return '<tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;color:#374151;width:45%;">' + escHtml(label) + '</td><td style="padding:5px 8px;color:#1f2937;">' + (value ? escHtml(value) : '<span style="color:#9ca3af;">—</span>') + '</td></tr>';
             }
             html += row('Cliente', info.cliente);
             html += row('Projeto', info.codigoProjeto);
-            html += row('Valor do Pedido', info.valorPedido ? 'R$ ' + String(info.valorPedido).replace('.', ',') : '');
+            html += row('Valor do Pedido', info.valorPedido ? 'R$ ' + String(info.valorPedido).replace(/\./g, ',') : '');
             html += row('Processos', info.processos);
             if (info.descricaoProcessos) html += row('Descrição dos Processos', info.descricaoProcessos);
             html += '<tr><td colspan="2" style="padding:8px;background:#f3f4f6;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;">Datas</td></tr>';
