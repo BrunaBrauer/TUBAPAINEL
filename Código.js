@@ -1002,17 +1002,21 @@ function detectarProximoIndice(data, iniciais) {
     // Se não há índices usados, retorna "a"
     if (indicesUsados.length === 0) return "a";
     
-    // Encontra o próximo índice disponível
+    // Encontra o MAIOR índice já usado e retorna o próximo (não pula buracos)
     const letras = "abcdefghijklmnopqrstuvwxyz";
+    let maiorPos = -1;
     for (let i = 0; i < letras.length; i++) {
-      const letra = letras[i];
-      if (!indicesUsados.includes(letra)) {
-        return letra;
+      if (indicesUsados.includes(letras[i])) {
+        maiorPos = i;
       }
     }
     
-    // Se todas as letras foram usadas (improvável), retorna "z"
-    return "z";
+    // Se não achou nenhuma letra conhecida (improvável), retorna "a"
+    if (maiorPos < 0) return "a";
+    
+    // Próxima letra após o maior índice encontrado
+    if (maiorPos + 1 >= letras.length) return "z"; // overflow improvável
+    return letras[maiorPos + 1];
   } catch (e) {
     Logger.log("Erro ao detectar próximo índice: " + e.message);
     return "a"; // Retorna "a" em caso de erro

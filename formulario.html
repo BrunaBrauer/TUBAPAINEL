@@ -443,6 +443,12 @@
                     ⚠️ <strong>Você está criando um NOVO projeto.</strong> O projeto original será mantido.
                 </div>
 
+                <!-- RF003: Aviso de código de projeto já existente -->
+                <div id="bannerProjetoExistente"
+                    style="display:none; background:#fdecea; border:1px solid #e53935; border-radius:6px; padding:10px 14px; margin-bottom:10px; color:#b71c1c;">
+                    🚫 <strong>Este código de projeto já existe!</strong> Se continuar, irá sobrescrever o projeto existente.
+                </div>
+
                 <div class="row">
                     <div class="col">
                         <label>Data (ANO + MES + DIA):</label>
@@ -763,6 +769,9 @@
         // true  = índice foi digitado pelo usuário ou veio de projeto carregado; preserva mesmo se data/iniciais mudar
         var _indiceManualmenteAlterado = false;
 
+        // RF003: Timer de debounce para verificação visual de código de projeto existente
+        var _verificarDuplicadoTimer = null;
+
         // RF002: Nomes dos processos (mapeamento sigla → nome completo)
         var _NOMES_PROCESSOS = { MP: "Matéria Prima", CL: "Corte Laser", D: "Dobra", S: "Solda", Pin: "Pintura", CAD: "Desenvolvimento CAD", ACB: "Acabamento" };
 
@@ -872,6 +881,7 @@
             previewDetalhamento:      document.getElementById("previewDetalhamento"),
             previewLoading:           document.getElementById("previewLoading"),
             bannerNovoProjeto:        document.getElementById("bannerNovoProjeto"),
+            bannerProjetoExistente:   document.getElementById("bannerProjetoExistente"),
             rascunhoBusca:            document.getElementById("rascunhoBusca"),
             rascunhoSelectKey:        document.getElementById("rascunhoSelectKey"),
             rascunhosList:            document.getElementById("rascunhosList"),
@@ -1493,6 +1503,7 @@
             if (preserveIndice === true) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                 return;
             }
 
@@ -1500,6 +1511,7 @@
             if (_indiceManualmenteAlterado) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                 return;
             }
 
@@ -1512,6 +1524,7 @@
                         const iniciaisAtual = _el.projetoIniciais.value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         _el.obsProjeto.value = codigoProjeto;
+                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                     })
                     .withFailureHandler(function (err) {
                         _el.projetoIndice.value = "a";
@@ -1519,12 +1532,14 @@
                         const iniciaisAtual = _el.projetoIniciais.value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         _el.obsProjeto.value = codigoProjeto;
+                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
                     })
                     .detectarProximoIndice(data, iniciais);
             } else {
                 const indice = _el.projetoIndice.value || "a";
                 const codigoProjeto = data + indice + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
+                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
             }
         }
 
@@ -1549,6 +1564,50 @@
             if (!banner) return;
             var mudou = (data !== _originalProjetoData) || (indice !== _originalProjetoIndice) || (iniciais !== _originalProjetoIniciais);
             banner.style.display = mudou ? "block" : "none";
+        }
+
+        // RF003: Comprimento mínimo de um código de projeto válido (YYMMDD + índice + iniciais = 6+1+2 = 9)
+        var _MIN_CODIGO_PROJETO = 9;
+
+        // RF003: Esconder aviso de duplicata e limpar destaque visual
+        function limparAvisoDuplicata() {
+            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "none";
+            if (_el.obsProjeto) _el.obsProjeto.style.border = "";
+        }
+
+        // RF003: Verificar em tempo real se o código de projeto já existe — com debounce de 600 ms
+        function verificarCodigoProjetoDuplicadoVisual(codigoProjeto) {
+            if (_verificarDuplicadoTimer) { clearTimeout(_verificarDuplicadoTimer); _verificarDuplicadoTimer = null; }
+
+            // Código muito curto → limpa aviso e para
+            if (!codigoProjeto || codigoProjeto.length < _MIN_CODIGO_PROJETO) {
+                limparAvisoDuplicata();
+                return;
+            }
+
+            // Mesmo código que foi carregado originalmente → não avisa (é a edição normal)
+            if (_originalProjetoData !== null &&
+                codigoProjeto === _originalProjetoData + _originalProjetoIndice + _originalProjetoIniciais) {
+                limparAvisoDuplicata();
+                return;
+            }
+
+            _verificarDuplicadoTimer = setTimeout(function () {
+                google.script.run
+                    .withSuccessHandler(function (result) {
+                        if (result && result.duplicado) {
+                            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "block";
+                            if (_el.obsProjeto) _el.obsProjeto.style.border = "2px solid #e53935";
+                        } else {
+                            limparAvisoDuplicata();
+                        }
+                    })
+                    .withFailureHandler(function (err) {
+                        console.warn("Verificação visual de duplicata falhou:", err);
+                        limparAvisoDuplicata();
+                    })
+                    .verificarProjetoDuplicado(codigoProjeto);
+            }, 600);
         }
 
         // RF006: Criar pasta 01_IN dentro da pasta do projeto
@@ -1921,6 +1980,7 @@
             }
             // Ocultar banner (limpar estado anterior)
             if (_el.bannerNovoProjeto) _el.bannerNovoProjeto.style.display = "none";
+            limparAvisoDuplicata();
 
             // 2. Cliente (campo único: nome = busca ou novo)
             _el.clienteNome.value = cliente.nome || "";
@@ -2277,6 +2337,7 @@
             _indiceManualmenteAlterado = false; // permitir recálculo automático no novo formulário
             var bannerReset = _el.bannerNovoProjeto;
             if (bannerReset) bannerReset.style.display = "none";
+            limparAvisoDuplicata();
 
             const today = new Date();
             _el.projetoData.value = String(today.getFullYear()).slice(2) +
@@ -2545,9 +2606,9 @@
                     }
                     calcular(asPedido, false);
                 })
-                .withFailureHandler(function () {
+                .withFailureHandler(function (err) {
                     // Se a verificação falhar, prosseguir sem bloquear o usuário
-                    if (window.console && window.console.warn) window.console.warn("Verificação de projeto duplicado falhou; prosseguindo.");
+                    console.warn("Verificação de projeto duplicado falhou; prosseguindo.", err);
                     calcular(asPedido, false);
                 })
                 .verificarProjetoDuplicado(codigoProjeto);
