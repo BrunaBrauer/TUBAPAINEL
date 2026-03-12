@@ -681,10 +681,7 @@
 
                 <div class="row" style="margin-top:8px;">
                     <div class="col">
-                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">Enviar
-                            Arquivos</button>
-                        <button type="button" id="btnCriarPasta01IN" class="secondary"
-                            onclick="criarPasta01INAction()">📁 Criar pasta 01_IN</button>
+                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">📁 Criar/Enviar para pasta 01_IN</button>
                         <button type="button" id="btnAbrirPasta01IN" class="secondary"
                             onclick="abrirPasta01INAction()">🔗 Abrir pasta 01_IN</button>
                         <div id="arquivosStatus" class="note"></div>
@@ -734,7 +731,7 @@
                         Salvar</button>
                     <button type="button" id="btnPreviewPdf" onclick="calcular(false, true)"
                         style="background:#354b75; color:white;">👁 Ver Prévia do PDF</button>
-                    <button type="button" id="btnGerar" onclick="calcular()" style="background:#59963d; color:white;">📄
+                    <button type="button" id="btnGerar" onclick="calcularComVerificacao()" style="background:#59963d; color:white;">📄
                         Finalizar e Gerar Proposta</button>
                 </div>
 
@@ -760,6 +757,11 @@
         var _originalProjetoData = null;
         var _originalProjetoIndice = null;
         var _originalProjetoIniciais = null;
+
+        // RF002b: Flag para saber se o índice foi alterado manualmente pelo usuário (ou carregado de projeto existente)
+        // false = índice foi calculado pelo sistema (detectarProximoIndice); recalcula se data/iniciais mudar
+        // true  = índice foi digitado pelo usuário ou veio de projeto carregado; preserva mesmo se data/iniciais mudar
+        var _indiceManualmenteAlterado = false;
 
         // RF002: Nomes dos processos (mapeamento sigla → nome completo)
         var _NOMES_PROCESSOS = { MP: "Matéria Prima", CL: "Corte Laser", D: "Dobra", S: "Solda", Pin: "Pintura", CAD: "Desenvolvimento CAD", ACB: "Acabamento" };
@@ -880,7 +882,6 @@
             versaoPickerContainer:    document.getElementById("versaoPickerContainer"),
             modoVersaoPdfNova:        document.getElementById("modoVersaoPdfNova"),
             btnCarregarRascunho:      document.getElementById("btnCarregarRascunho"),
-            btnCriarPasta01IN:        document.getElementById("btnCriarPasta01IN"),
             btnAbrirPasta01IN:        document.getElementById("btnAbrirPasta01IN"),
             btnEnviarArquivos:        document.getElementById("btnEnviarArquivos"),
             btnPreviewPdf:            document.getElementById("btnPreviewPdf"),
@@ -1495,8 +1496,8 @@
                 return;
             }
 
-            // Índice diferente de "a" e não vazio: usuário alterou manualmente (ex.: b, c, h)
-            if (indiceAtual !== "" && indiceAtual.toLowerCase() !== "a") {
+            // Índice alterado manualmente pelo usuário (ou carregado de projeto existente): preservar
+            if (_indiceManualmenteAlterado) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 _el.obsProjeto.value = codigoProjeto;
                 return;
@@ -1531,6 +1532,7 @@
             _el[id].addEventListener("input", function () { atualizarCamposProjeto(); verificarMudancaCampoProjeto(); });
         });
         _el.projetoIndice.addEventListener("input", function () {
+            _indiceManualmenteAlterado = true;
             atualizarCamposProjeto(true);
             verificarMudancaCampoProjeto();
         });
@@ -1908,6 +1910,7 @@
             _el.projetoData.value = projetoData;
             _el.projetoIndice.value = projetoIndice;
             _el.projetoIniciais.value = projetoIniciais;
+            _indiceManualmenteAlterado = true; // índice veio de projeto carregado — preservar
             atualizarCamposProjeto(true);
 
             // RF001: Armazenar valores originais dos campos do projeto ao carregar
@@ -2271,6 +2274,7 @@
             _originalProjetoData = null;
             _originalProjetoIndice = null;
             _originalProjetoIniciais = null;
+            _indiceManualmenteAlterado = false; // permitir recálculo automático no novo formulário
             var bannerReset = _el.bannerNovoProjeto;
             if (bannerReset) bannerReset.style.display = "none";
 
@@ -2450,7 +2454,7 @@
                 if (!confirm("Salvar este projeto como PEDIDO?\n\nSerá gerada a proposta comercial em PDF e o projeto será registrado já como \"Convertido em Pedido\".")) return;
             }
             // Usa a mesma lógica de calcular(), gerando o PDF com status "convertido em pedido"
-            calcular(true);
+            calcularComVerificacao(true);
         }
 
         // Função de deletar rascunho (chama o Apps Script)
@@ -2514,6 +2518,39 @@
             const mes = String(d.getMonth() + 1).padStart(2, '0');
             const ano = d.getFullYear();
             return `${dia}/${mes}/${ano}`;
+        }
+
+        // RF003: Validar projeto duplicado antes de gerar/salvar (apenas para projetos novos, não carregados pelo formulário de busca)
+        function calcularComVerificacao(asPedido) {
+            asPedido = !!asPedido;
+            // Se o projeto foi carregado pelo formulário de busca (_originalProjetoData !== null),
+            // o usuário obviamente quer editar — não mostrar alerta de duplicata.
+            if (_originalProjetoData !== null) {
+                calcular(asPedido, false);
+                return;
+            }
+            const data = _el.projetoData.value.trim();
+            const indice = _el.projetoIndice.value.trim();
+            const iniciais = _el.projetoIniciais.value.trim();
+            if (!data || !indice || !iniciais) {
+                // Deixa calcular() lidar com a validação de campos obrigatórios
+                calcular(asPedido, false);
+                return;
+            }
+            const codigoProjeto = data + indice + iniciais;
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result && result.duplicado) {
+                        if (!confirm("⚠️ Este código de projeto já existe (" + codigoProjeto + ").\nDeseja sobrescrever?")) return;
+                    }
+                    calcular(asPedido, false);
+                })
+                .withFailureHandler(function () {
+                    // Se a verificação falhar, prosseguir sem bloquear o usuário
+                    if (window.console && window.console.warn) window.console.warn("Verificação de projeto duplicado falhou; prosseguindo.");
+                    calcular(asPedido, false);
+                })
+                .verificarProjetoDuplicado(codigoProjeto);
         }
 
         function calcular(asPedido, apenasPreview) {
