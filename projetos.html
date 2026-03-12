@@ -852,12 +852,13 @@
                     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
                         <div class="form-group" style="flex:1; min-width:140px;">
                             <label>Prazo da Proposta</label>
-                            <input type="date" id="rapidoPrazoProposta"
-                                title="Exibido na coluna Processo de orçamento do Kanban">
+                            <input type="text" id="rapidoPrazoProposta"
+                                title="Exibido na coluna Processo de orçamento do Kanban"
+                                placeholder="Ex: 7 dias após aprovação ou dd/mm/aaaa">
                         </div>
                         <div class="form-group" style="flex:1; min-width:140px;">
                             <label>Prazo de entrega</label>
-                            <input type="date" id="rapidoPrazoEntrega">
+                            <input type="text" id="rapidoPrazoEntrega" placeholder="Ex: 9 dias a partir do pedido ou dd/mm/aaaa">
                         </div>
                     </div>
                     <div class="form-group">
@@ -948,12 +949,13 @@
                     </div>
                     <div class="form-group">
                         <label>Prazo da Proposta</label>
-                        <input type="date" id="editPrazoProposta"
-                            title="Exibido na coluna Processo de orçamento do Kanban">
+                        <input type="text" id="editPrazoProposta"
+                            title="Exibido na coluna Processo de orçamento do Kanban"
+                            placeholder="Ex: 7 dias após aprovação ou dd/mm/aaaa">
                     </div>
                     <div class="form-group">
                         <label>Prazo de entrega</label>
-                        <input type="date" id="editPrazo">
+                        <input type="text" id="editPrazo" placeholder="Ex: 9 dias a partir do pedido ou dd/mm/aaaa">
                     </div>
                     <div class="form-group">
                         <label>Observações para o cliente</label>
@@ -1048,6 +1050,38 @@
                     <button type="button" class="btn btn-ghost" onclick="closeOrdemCompraModal()">Cancelar</button>
                     <button type="button" class="btn btn-primary" id="ordemCompraBtnGerar"
                         onclick="gerarPdfOrdemCompraFromModal()">Gerar PDF</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Informações do Pedido -->
+        <div id="infoPedidoModal" class="modal">
+            <div class="modal-content" style="max-width:620px;">
+                <div class="modal-header">
+                    <h2 id="infoPedidoTitulo">Informações do Pedido</h2>
+                    <button class="modal-close" onclick="fecharInfoPedidoModal()">×</button>
+                </div>
+                <div id="infoPedidoConteudo" style="padding:12px 0;min-height:80px;"></div>
+                <div id="infoPedidoEditFields" style="display:none;border-top:1px solid #e5e7eb;padding-top:12px;">
+                    <div style="margin:0 0 8px 0;font-weight:700;font-size:13px;color:#1e40af;">Editar Informações</div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:13px;">Nota Fiscal</label>
+                        <input type="text" id="infoPedidoNF" placeholder="Número da nota fiscal" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:13px;">Data de Entrega</label>
+                        <input type="text" id="infoPedidoDataEntrega" placeholder="dd/mm/aaaa" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:13px;">Observações do Pedido</label>
+                        <textarea id="infoPedidoObs" rows="3" placeholder="Observações sobre este pedido" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;resize:vertical;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="infoPedidoBtnCancelar" class="btn btn-cancel" style="display:none;" onclick="infoPedidoCancelarEdicao()">Cancelar</button>
+                    <button type="button" id="infoPedidoBtnEditar" class="btn btn-ghost" onclick="infoPedidoModoEdicao()">✏️ Editar</button>
+                    <button type="button" id="infoPedidoBtnSalvar" class="btn btn-primary" style="display:none;" onclick="infoPedidoSalvar()">Salvar</button>
+                    <button type="button" class="btn btn-cancel" onclick="fecharInfoPedidoModal()">Fechar</button>
                 </div>
             </div>
         </div>
@@ -1473,13 +1507,7 @@
                 const nfBtnTitle = !exigeNF ? '' : (nfPreenchida ? ('NF preenchida (' + nfValor + ')') : 'Informar NF (pendente)');
                 const nfBtnTexto = !exigeNF ? 'NF' : (nfPreenchida ? 'NF ✔' : 'NF ?');
 
-                // RF004: Botão de Data de Entrega (apenas para pedidos)
                 const isConvertido = projeto.STATUS_ORCAMENTO === 'Convertido em Pedido';
-                const dataEntregaVal = (projeto.dataEntrega != null && String(projeto.dataEntrega).trim() !== '') ? String(projeto.dataEntrega).trim() : '';
-                const entregaBtnCor = dataEntregaVal ? '#16a34a' : '#f59e0b';
-                const entregaBtnTitle = dataEntregaVal ? ('Entrega: ' + dataEntregaVal) : 'Informar data de entrega';
-                const entregaBtnTexto = dataEntregaVal ? '📦✔' : '📦?';
-                const entregaBtnHtml = isConvertido ? `<button type="button" class="btn btn-small" style="background:${entregaBtnCor}; color:white; min-width:36px; margin-right:4px;" onclick="informarDataEntrega(${linha})" title="${entregaBtnTitle}">${entregaBtnTexto}</button>` : '';
 
                 html += `
           <tr data-linha="${linha}">
@@ -1521,10 +1549,10 @@
             </td>
             <td class="actions-cell">
               <button type="button" class="btn btn-small" style="background:${nfBtnCor}; color:white; min-width:36px; margin-right:4px;" onclick="abrirInformarNFSeExige(${linha})" title="${nfBtnTitle || ''}">${nfBtnTexto}</button>
-              ${entregaBtnHtml}
               <div class="actions-dropdown">
                 <button type="button" class="btn btn-small actions-trigger" onclick="toggleActionsMenu(event, ${linha})" title="Ações">⋮</button>
                 <div class="actions-menu" id="actionsMenu-${linha}">
+                  ${isConvertido ? `<button type="button" onclick="fecharActionsMenu(); abrirInformacoesPedido(${linha})">ℹ️ Informações do Pedido</button>` : ''}
                   <button type="button" onclick="fecharActionsMenu(); editProjeto(${linha})">✏️ Edição Rápida</button>
                   <button type="button" onclick="fecharActionsMenu(); abrirFormularioComProjeto(${linha})">📝 Editar Orçamento</button>
                   <button type="button" onclick="fecharActionsMenu(); gerarOrdemProducao(${linha})">📋 Ordem de Produção</button>
@@ -1803,27 +1831,100 @@
                 .informarValorNFProjeto(linha, valorTrim);
         }
 
-        // RF004: Informar data de entrega de um pedido
-        function informarDataEntrega(linha) {
+        // Abrir modal de Informações do Pedido
+        function abrirInformacoesPedido(linha) {
             const projeto = projetos.find(p => p._linhaPlanilha == linha);
-            const valorAtual = (projeto && projeto.dataEntrega) ? String(projeto.dataEntrega) : '';
-            const valor = prompt('Informe a data de entrega (ex: 26/04/2026 ou 2026-04-26):', valorAtual);
-            if (valor === null) return;
-            const valorTrim = (valor || '').trim();
-            if (!valorTrim) {
-                alert('Informe a data de entrega.');
-                return;
+            if (!projeto) { alert('Projeto não encontrado.'); return; }
+            const modal = document.getElementById('infoPedidoModal');
+            modal.dataset.linha = linha;
+            // Título
+            document.getElementById('infoPedidoTitulo').textContent = 'Informações do Pedido — ' + (projeto.PROJETO || '');
+            // Limpar campos de carregamento
+            document.getElementById('infoPedidoConteudo').innerHTML = '<div style="text-align:center;padding:24px;">Carregando...</div>';
+            document.getElementById('infoPedidoEditFields').style.display = 'none';
+            document.getElementById('infoPedidoBtnEditar').style.display = '';
+            document.getElementById('infoPedidoBtnSalvar').style.display = 'none';
+            document.getElementById('infoPedidoBtnCancelar').style.display = 'none';
+            modal.classList.add('active');
+            google.script.run
+                .withSuccessHandler(function (info) {
+                    renderInfoPedido(info, linha);
+                })
+                .withFailureHandler(function (err) {
+                    document.getElementById('infoPedidoConteudo').innerHTML = '<div style="color:red;">Erro ao carregar informações: ' + (err.message || err) + '</div>';
+                })
+                .getInformacoesPedido(linha);
+        }
+
+        function renderInfoPedido(info, linha) {
+            if (!info) { document.getElementById('infoPedidoConteudo').innerHTML = '<div>Sem informações.</div>'; return; }
+            var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+            function row(label, value) {
+                return '<tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;color:#374151;width:45%;">' + label + '</td><td style="padding:5px 8px;color:#1f2937;">' + (value || '<span style="color:#9ca3af;">—</span>') + '</td></tr>';
             }
+            html += row('Cliente', info.cliente);
+            html += row('Projeto', info.codigoProjeto);
+            html += row('Valor do Pedido', info.valorPedido ? 'R$ ' + String(info.valorPedido).replace('.', ',') : '');
+            html += row('Processos', info.processos);
+            if (info.descricaoProcessos) html += row('Descrição dos Processos', info.descricaoProcessos);
+            html += '<tr><td colspan="2" style="padding:8px;background:#f3f4f6;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;">Datas</td></tr>';
+            html += row('Data de Criação', info.dataCriacao);
+            html += row('Último Orçamento Gerado', info.dataUltimoOrcamento);
+            html += row('Convertido em Pedido', info.dataConversaoPedido);
+            html += row('Início — Preparação MP / CAD / CAM', info.dataInicioPreparacao);
+            html += row('Início — Processo de Corte', info.dataInicioCorte);
+            html += row('Início — Processo de Dobra', info.dataInicioDobra);
+            html += row('Início — Processos Adicionais', info.dataInicioAdicionais);
+            html += row('Início — Envio / Coleta', info.dataInicioEnvioColeta);
+            html += row('Finalizado em', info.dataFinalizado);
+            html += '</table>';
+            document.getElementById('infoPedidoConteudo').innerHTML = html;
+            // Preencher campos editáveis
+            document.getElementById('infoPedidoNF').value = info.notaFiscal || '';
+            document.getElementById('infoPedidoDataEntrega').value = info.dataEntrega || '';
+            document.getElementById('infoPedidoObs').value = info.obs || '';
+        }
+
+        function infoPedidoModoEdicao() {
+            document.getElementById('infoPedidoEditFields').style.display = '';
+            document.getElementById('infoPedidoBtnEditar').style.display = 'none';
+            document.getElementById('infoPedidoBtnSalvar').style.display = '';
+            document.getElementById('infoPedidoBtnCancelar').style.display = '';
+        }
+
+        function infoPedidoCancelarEdicao() {
+            document.getElementById('infoPedidoEditFields').style.display = 'none';
+            document.getElementById('infoPedidoBtnEditar').style.display = '';
+            document.getElementById('infoPedidoBtnSalvar').style.display = 'none';
+            document.getElementById('infoPedidoBtnCancelar').style.display = 'none';
+        }
+
+        function infoPedidoSalvar() {
+            const modal = document.getElementById('infoPedidoModal');
+            const linha = parseInt(modal.dataset.linha, 10);
+            const nf = document.getElementById('infoPedidoNF').value.trim();
+            const dataEntrega = document.getElementById('infoPedidoDataEntrega').value.trim();
+            const obs = document.getElementById('infoPedidoObs').value.trim();
+            const btnSalvar = document.getElementById('infoPedidoBtnSalvar');
+            btnSalvar.disabled = true;
+            btnSalvar.textContent = 'Salvando...';
             google.script.run
                 .withSuccessHandler(function () {
-                    if (projeto) projeto.dataEntrega = valorTrim;
-                    alert('Data de entrega registrada com sucesso.');
+                    btnSalvar.disabled = false;
+                    btnSalvar.textContent = 'Salvar';
+                    infoPedidoCancelarEdicao();
                     loadProjetos();
                 })
-                .withFailureHandler(function (error) {
-                    alert('Erro ao informar data de entrega: ' + (error.message || error));
+                .withFailureHandler(function (err) {
+                    btnSalvar.disabled = false;
+                    btnSalvar.textContent = 'Salvar';
+                    alert('Erro ao salvar: ' + (err.message || err));
                 })
-                .informarDataEntregaProjeto(linha, valorTrim);
+                .atualizarInformacoesPedido(linha, { notaFiscal: nf, dataEntrega: dataEntrega, obs: obs });
+        }
+
+        function fecharInfoPedidoModal() {
+            document.getElementById('infoPedidoModal').classList.remove('active');
         }
 
         // Editar projeto (abre modal de edição)
@@ -1863,25 +1964,10 @@
             }
 
             // Prazo da Proposta
-            let prazoPropostaValue = '';
-            if (projeto.PRAZO_PROPOSTA && projeto.PRAZO_PROPOSTA !== '-') {
-                const s = String(projeto.PRAZO_PROPOSTA);
-                const m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-                if (m) prazoPropostaValue = `${m[3]}-${m[2]}-${m[1]}`;
-            }
-            document.getElementById('editPrazoProposta').value = prazoPropostaValue;
+            document.getElementById('editPrazoProposta').value = projeto.PRAZO_PROPOSTA && projeto.PRAZO_PROPOSTA !== '-' ? String(projeto.PRAZO_PROPOSTA) : '';
 
-            // Trata o prazo (pode ser Date ou string)
-            let prazoValue = '';
-            if (projeto.PRAZO && projeto.PRAZO !== '-') {
-                // Tenta converter dd/mm/yyyy para yyyy-mm-dd
-                const prazoStr = String(projeto.PRAZO);
-                const match = prazoStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-                if (match) {
-                    prazoValue = `${match[3]}-${match[2]}-${match[1]}`;
-                }
-            }
-            document.getElementById('editPrazo').value = prazoValue;
+            // Prazo de entrega
+            document.getElementById('editPrazo').value = projeto.PRAZO && projeto.PRAZO !== '-' ? String(projeto.PRAZO) : '';
 
             // Habilita/desabilita status do pedido
             toggleEditStatusPedido();

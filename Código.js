@@ -23,6 +23,7 @@ const SHEET_CLIENTES = ss.getSheetByName("Cadastro de Clientes");
 const SHEET_FORNECEDORES = ss.getSheetByName("Cadastro de Fornecedores");
 const SHEET_PRODUTOS = ss.getSheetByName("Relação de produtos");
 const SHEET_PROJ = ss.getSheetByName("Projetos"); // Nova aba unificada
+let SHEET_HISTORICO = ss.getSheetByName("StatusHistorico"); // Aba de histórico de mudanças de status
 const ID_PASTA_PRINCIPAL = CONFIG.ID_PASTA_PRINCIPAL;
 const ID_LOGO = CONFIG.ID_LOGO;
 const FAVICON = CONFIG.FAVICON;
@@ -4787,7 +4788,261 @@ function informarValorNFProjeto(linha, valorNF) {
 }
 
 /**
+ * Retorna informações completas de um pedido (datas, NF, valor, processos, histórico de status).
+ * @param {number} linha - Linha na aba Projetos
+ * @returns {Object} Objeto com todas as informações do pedido
+ */
+function getInformacoesPedido(linha) {
+  try {
+    linha = Number(linha);
+    if (!linha || linha < 2) throw new Error("Linha inválida.");
+    var sheetProj = SHEET_PROJ;
+    if (!sheetProj || sheetProj.getLastRow() < linha) throw new Error("Projeto não encontrado.");
+    var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
+    var row = sheetProj.getRange(linha, 1, 1, headers.length).getValues()[0];
+    var obj = {};
+    headers.forEach(function (h, i) { obj[h] = row[i]; });
+
+    var codigoProjeto = (obj["PROJETO"] || "").toString().trim();
+    var cliente = (obj["CLIENTE"] || "").toString().trim();
+
+    // Data de criação (coluna DATA da aba Projetos)
+    var dataCriacao = (obj["DATA"] != null && obj["DATA"] !== "") ? _formatDataBr(obj["DATA"]) : "";
+
+    // Processos
+    var processos = (obj["PROCESSOS"] || "").toString().trim();
+
+    // Descrição dos processos (pode estar em JSON_DADOS)
+    var descricaoProcessos = "";
+    var jsonStr = obj["JSON_DADOS"];
+    var parsed = null;
+    var dataSalvo = "";
+    var notaFiscal = "";
+    var dataEntrega = "";
+    var obs = "";
+    if (jsonStr && typeof jsonStr === "string") {
+      try {
+        parsed = JSON.parse(jsonStr);
+        // Data do último orçamento
+        if (parsed && parsed.dataSalvo) dataSalvo = _formatDataBr(parsed.dataSalvo);
+        else if (parsed && parsed.versoes && parsed.versoes.length > 0) {
+          var ultimaVersao = parsed.versoes[parsed.versoes.length - 1];
+          if (ultimaVersao.dataSalvo) dataSalvo = _formatDataBr(ultimaVersao.dataSalvo);
+        }
+        // Nota fiscal, data de entrega e obs do JSON_DADOS
+        if (parsed && parsed.dados && parsed.dados.observacoes) {
+          var obsObj = parsed.dados.observacoes;
+          if (obsObj.valorNF) notaFiscal = String(obsObj.valorNF).trim();
+          if (obsObj.dataEntrega) dataEntrega = String(obsObj.dataEntrega).trim();
+        }
+        // Descrição dos processos
+        if (parsed && parsed.dados) {
+          var processosPedido = parsed.dados.processosPedido;
+          if (Array.isArray(processosPedido) && processosPedido.length > 0) {
+            descricaoProcessos = processosPedido.map(function (p) {
+              return (p.processo || "") + (p.descricao ? ": " + p.descricao : "");
+            }).filter(Boolean).join("; ");
+          }
+        }
+      } catch (e) { /* ignora */ }
+    }
+
+    // Valor do pedido (aba Pedidos tem prioridade, senão VALOR TOTAL da aba Projetos)
+    var valorPedido = "";
+    var dataConversaoPedido = "";
+    var obsPedido = "";
+    var sheetPed = SHEET_PED;
+    if (sheetPed) {
+      var pedMap = getPedidosSheetMap();
+      if (pedMap[codigoProjeto]) {
+        var ped = pedMap[codigoProjeto];
+        if (ped.VALOR_TOTAL) valorPedido = String(ped.VALOR_TOTAL);
+        if (ped.DATA_COMPETENCIA) dataConversaoPedido = _formatDataBr(ped.DATA_COMPETENCIA);
+        if (ped.DATA_ENTREGA) dataEntrega = String(ped.DATA_ENTREGA).trim();
+        if (ped.NF) notaFiscal = String(ped.NF).trim();
+        if (ped.OBS) obsPedido = String(ped.OBS).trim();
+      }
+    }
+    if (!valorPedido && obj["VALOR TOTAL"]) valorPedido = String(obj["VALOR TOTAL"]);
+    obs = obsPedido;
+
+    // Datas de cada status do histórico (aba StatusHistorico)
+    var dataInicioPreparacao = obterDataStatusPedido(codigoProjeto, "Processo de Preparação MP / CAD / CAM");
+    var dataInicioCorte = obterDataStatusPedido(codigoProjeto, "Processo de Corte");
+    var dataInicioDobra = obterDataStatusPedido(codigoProjeto, "Processo de Dobra");
+    var dataInicioAdicionais = obterDataStatusPedido(codigoProjeto, "Processos Adicionais");
+    var dataInicioEnvioColeta = obterDataStatusPedido(codigoProjeto, "Envio / Coleta");
+    var dataFinalizado = obterDataStatusPedido(codigoProjeto, "Finalizado");
+
+    // Se status atual já é Finalizado e não há data no histórico, tenta data de entrega como fallback
+    if (!dataFinalizado && dataEntrega) dataFinalizado = dataEntrega;
+
+    return {
+      codigoProjeto: codigoProjeto,
+      cliente: cliente,
+      valorPedido: valorPedido,
+      processos: processos,
+      descricaoProcessos: descricaoProcessos,
+      dataCriacao: dataCriacao,
+      dataUltimoOrcamento: dataSalvo,
+      dataConversaoPedido: dataConversaoPedido,
+      dataInicioPreparacao: dataInicioPreparacao,
+      dataInicioCorte: dataInicioCorte,
+      dataInicioDobra: dataInicioDobra,
+      dataInicioAdicionais: dataInicioAdicionais,
+      dataInicioEnvioColeta: dataInicioEnvioColeta,
+      dataFinalizado: dataFinalizado,
+      notaFiscal: notaFiscal,
+      dataEntrega: dataEntrega,
+      obs: obs
+    };
+  } catch (e) {
+    Logger.log("getInformacoesPedido error: " + e.message);
+    throw new Error(e.message || "Erro ao obter informações do pedido");
+  }
+}
+
+/**
+ * Atualiza informações editáveis do pedido (NF, data de entrega, obs) e sincroniza com aba Pedidos e JSON_DADOS.
+ * @param {number} linha - Linha na aba Projetos
+ * @param {Object} dados - { notaFiscal, dataEntrega, obs }
+ * @returns {{ success: boolean }}
+ */
+function atualizarInformacoesPedido(linha, dados) {
+  try {
+    linha = Number(linha);
+    if (!linha || linha < 2) throw new Error("Linha inválida.");
+    var sheetProj = SHEET_PROJ;
+    if (!sheetProj || sheetProj.getLastRow() < linha) throw new Error("Projeto não encontrado.");
+    var headers = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
+    var row = sheetProj.getRange(linha, 1, 1, headers.length).getValues()[0];
+    var codigoProjeto = "";
+    var idxProjeto = _findHeaderIndex(headers, "PROJETO");
+    var idxJson = _findHeaderIndex(headers, "JSON_DADOS");
+    if (idxProjeto >= 0) codigoProjeto = (row[idxProjeto] || "").toString().trim();
+    if (!codigoProjeto) throw new Error("Código do projeto não encontrado.");
+
+    // Atualiza JSON_DADOS
+    if (idxJson >= 0) {
+      var jsonStr = row[idxJson];
+      var parsed = jsonStr ? (function () { try { return JSON.parse(jsonStr); } catch (e) { return null; } })() : null;
+      if (!parsed || !parsed.dados) parsed = { dados: {} };
+      if (!parsed.dados.observacoes) parsed.dados.observacoes = {};
+      if (dados.notaFiscal !== undefined) parsed.dados.observacoes.valorNF = dados.notaFiscal;
+      if (dados.dataEntrega !== undefined) parsed.dados.observacoes.dataEntrega = dados.dataEntrega;
+      sheetProj.getRange(linha, idxJson + 1).setValue(JSON.stringify(parsed));
+      SheetCache.invalidate(sheetProj);
+    }
+
+    // Sincroniza com aba Pedidos
+    var objProj = {};
+    headers.forEach(function (h, i) { objProj[h] = row[i]; });
+    var dataComp = (objProj["DATA_COMPETENCIA"] || objProj["DATA COMPETÊNCIA"] || objProj.DATA || "").toString().trim();
+    var atualizacoesPed = {};
+    if (dados.notaFiscal !== undefined) atualizacoesPed.NOTA_FISCAL = dados.notaFiscal;
+    if (dados.dataEntrega !== undefined) atualizacoesPed.DATA_ENTREGA = dados.dataEntrega;
+    if (dados.obs !== undefined) atualizacoesPed.OBS = dados.obs;
+    if (Object.keys(atualizacoesPed).length > 0) {
+      atualizarPedidoNaPlanilha(codigoProjeto, atualizacoesPed, {
+        CLIENTE: objProj.CLIENTE,
+        "VALOR TOTAL": objProj["VALOR TOTAL"],
+        _dataCompetencia: dataComp,
+        _linhaPlanilha: linha
+      });
+    }
+    return { success: true };
+  } catch (e) {
+    Logger.log("atualizarInformacoesPedido error: " + e.message);
+    throw new Error(e.message || "Erro ao atualizar informações do pedido");
+  }
+}
+
+/**
+ * Salva um registro de mudança de status na aba StatusHistorico.
+ * @param {string} codigoProjeto
+ * @param {string} cliente
+ * @param {string} statusAnterior
+ * @param {string} novoStatus
+ * @param {Date} dataHora
+ */
+function salvarStatusHistorico(codigoProjeto, cliente, statusAnterior, novoStatus, dataHora) {
+  try {
+    var sheetHist = ss.getSheetByName("StatusHistorico");
+    if (!sheetHist) {
+      sheetHist = ss.insertSheet("StatusHistorico");
+      sheetHist.getRange(1, 1, 1, 7).setValues([["CLIENTE", "PROJETO", "STATUS_ANTERIOR", "STATUS_NOVO", "DATA_HORA", "DATA", "HORA"]]);
+    }
+    var dt = dataHora instanceof Date ? dataHora : new Date();
+    var dataStr = String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
+    var horaStr = String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+    sheetHist.appendRow([cliente || "", codigoProjeto || "", statusAnterior || "", novoStatus || "", dt.toISOString(), dataStr, horaStr]);
+    SheetCache.invalidate(sheetHist);
+  } catch (e) {
+    Logger.log("salvarStatusHistorico error: " + e.message);
+  }
+}
+
+/**
+ * Obtém a data em que um projeto entrou em um status específico, consultando a aba StatusHistorico.
+ * @param {string} codigoProjeto
+ * @param {string} status
+ * @returns {string} Data formatada dd/mm/yyyy HH:MM ou string vazia
+ */
+function obterDataStatusPedido(codigoProjeto, status) {
+  try {
+    var sheetHist = ss.getSheetByName("StatusHistorico");
+    if (!sheetHist || sheetHist.getLastRow() < 2) return "";
+    var data = SheetCache.getData(sheetHist);
+    var headers = data[0];
+    var idxProj = _findHeaderIndex(headers, "PROJETO");
+    var idxStatus = _findHeaderIndex(headers, "STATUS_NOVO");
+    var idxData = _findHeaderIndex(headers, "DATA");
+    var idxHora = _findHeaderIndex(headers, "HORA");
+    if (idxProj < 0 || idxStatus < 0) return "";
+    // Busca a primeira ocorrência do status para este projeto
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if ((row[idxProj] || "").toString().trim() === codigoProjeto &&
+          (row[idxStatus] || "").toString().trim() === status) {
+        var dataVal = idxData >= 0 ? (row[idxData] || "").toString().trim() : "";
+        var horaVal = idxHora >= 0 ? (row[idxHora] || "").toString().trim() : "";
+        return dataVal + (horaVal ? " " + horaVal : "");
+      }
+    }
+    return "";
+  } catch (e) {
+    Logger.log("obterDataStatusPedido error: " + e.message);
+    return "";
+  }
+}
+
+/**
+ * Formata uma data (Date, string ISO ou string BR) para dd/mm/yyyy.
+ * @param {*} val
+ * @returns {string}
+ */
+function _formatDataBr(val) {
+  if (!val) return "";
+  if (val instanceof Date) {
+    return String(val.getDate()).padStart(2, '0') + '/' + String(val.getMonth() + 1).padStart(2, '0') + '/' + val.getFullYear();
+  }
+  var s = String(val).trim();
+  // Já formatado dd/mm/yyyy
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(s)) return s.substring(0, 10);
+  // ISO: yyyy-mm-ddT...
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[3] + '/' + m[2] + '/' + m[1];
+  // Tenta construir via Date
+  try {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+  } catch (e) { }
+  return s;
+}
+
+/**
  * Informa a data de entrega de um projeto/pedido e sincroniza com a aba de Pedidos.
+ * @deprecated Use atualizarInformacoesPedido em vez desta função.
  * @param {number} linha - Linha na aba Projetos
  * @param {string} dataEntrega - Data de entrega (string)
  * @returns {{ success: boolean }}
@@ -5004,6 +5259,25 @@ function atualizarStatusKanban(cliente, projeto, novoStatus) {
           const statusPedidoFinal = !statusAntigo ? "Processo de Preparação MP / CAD / CAM" : novoStatus;
           sheetProj.getRange(i + 1, idxStatusPed + 1).setValue(statusPedidoFinal);
           SheetCache.invalidate(sheetProj);
+          // Registra mudança de status no histórico
+          try {
+            salvarStatusHistorico(valProjeto, valCliente, statusAntigo, statusPedidoFinal, new Date());
+          } catch (histErr) {
+            Logger.log("Erro ao salvar StatusHistorico: " + histErr.message);
+          }
+          // Se status = Finalizado, atualiza DATA_ENTREGA na aba Pedidos automaticamente
+          if (statusPedidoFinal === "Finalizado") {
+            try {
+              var dt = new Date();
+              var dataFin = String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
+              atualizarPedidoNaPlanilha(valProjeto, { DATA_ENTREGA: dataFin }, {
+                CLIENTE: valCliente,
+                _linhaPlanilha: i + 1
+              });
+            } catch (finErr) {
+              Logger.log("Erro ao atualizar DATA_ENTREGA no Finalizado: " + finErr.message);
+            }
+          }
           break;
         }
       }
