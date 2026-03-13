@@ -382,11 +382,44 @@ function _formatBrCurrency(n) {
 // Formata data BR (dd/mm/yyyy)
 function formatarDataBrasil(date) {
   if (!date) return "";
-  const d = new Date(date);
-  const dia = String(d.getUTCDate()).padStart(2, "0");
-  const mes = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const ano = d.getUTCFullYear();
-  return `${dia}/${mes}/${ano}`;
+
+  // Se já for Date válido
+  if (date instanceof Date && !isNaN(date.getTime())) {
+    const dia = String(date.getUTCDate()).padStart(2, "0");
+    const mes = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const ano = date.getUTCFullYear();
+    return `${dia}/${mes}/${ano}`;
+  }
+
+  const tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+  let d = null;
+
+  // Número: possível serial do Sheets
+  if (typeof date === "number" && !isNaN(date)) {
+    try {
+      const ms = (date - 25569) * 86400 * 1000;
+      d = new Date(ms);
+    } catch (e) {
+      d = null;
+    }
+  } else if (typeof date === "string") {
+    const s = date.trim();
+    // dd/mm/aaaa
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [diaStr, mesStr, anoStr] = s.split("/");
+      d = new Date(parseInt(anoStr, 10), parseInt(mesStr, 10) - 1, parseInt(diaStr, 10));
+    } else {
+      const parsed = Date.parse(s);
+      if (!isNaN(parsed)) d = new Date(parsed);
+    }
+  }
+
+  if (d && !isNaN(d.getTime())) {
+    return Utilities.formatDate(d, tz, "dd/MM/yyyy");
+  }
+
+  // Fallback: devolve string original (evita NaN/NaN/NaN no PDF)
+  return String(date);
 }
 
 // ========================= PREVIEW DE ORÇAMENTO =========================
@@ -709,9 +742,10 @@ function renomearPastaProjeto(codigoProjeto, data, cliente, descricao, isPedido)
  * @param {string} data - Data no formato YYMMDD
  * @param {string} nomeCliente - Nome do cliente
  * @param {string} descricao - Descrição do projeto
+ * @param {string} [nomeAbreviado] - Nome abreviado do cliente (opcional, prevalece sobre nomeCliente)
  * @returns {boolean} - True se renomeou com sucesso, false caso contrário
  */
-function atualizarPrefixoPastaParaPedido(codigoProjeto, data, nomeCliente, descricao) {
+function atualizarPrefixoPastaParaPedido(codigoProjeto, data, nomeCliente, descricao, nomeAbreviado) {
   try {
     Logger.log("🔄 Iniciando conversão de COT para PED: " + codigoProjeto);
     
@@ -726,8 +760,8 @@ function atualizarPrefixoPastaParaPedido(codigoProjeto, data, nomeCliente, descr
       return true; // Já está como PED
     }
     
-    // Renomeia para PED
-    const novoNome = gerarNomePasta(codigoProjeto, nomeCliente, descricao, true);
+    // Renomeia para PED, preservando nome abreviado quando disponível
+    const novoNome = gerarNomePasta(codigoProjeto, nomeCliente, descricao, true, nomeAbreviado);
     pastaInfo.pasta.setName(novoNome);
     Logger.log("✅ Pasta convertida de COT para PED: " + novoNome);
     return true;
@@ -2062,7 +2096,27 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
 
   // Extrai descrição e prazo das observações
   const descricao = (observacoes && observacoes.descricao) || "";
-  const prazo = (observacoes && observacoes.prazo) || "";
+  const prazoOriginal = (observacoes && observacoes.prazo) || "";
+
+  // Prazo calculado em formato de data para Kanban (quando preenchido em dias)
+  let prazoParaPlanilha = prazoOriginal;
+  try {
+    if (isPedido && prazoOriginal) {
+      const s = String(prazoOriginal).trim();
+      const mDias = s.match(/(\d+)\s*dias?/i);
+      if (mDias && !/\/\d{2}\/\d{4}/.test(s)) {
+        const qtdDias = parseInt(mDias[1], 10);
+        if (!isNaN(qtdDias)) {
+          const tz = ss.getSpreadsheetTimeZone ? ss.getSpreadsheetTimeZone() : Session.getScriptTimeZone();
+          const base = new Date();
+          base.setDate(base.getDate() + qtdDias);
+          prazoParaPlanilha = Utilities.formatDate(base, tz || "America/Sao_Paulo", "yyyy-MM-dd");
+        }
+      }
+    }
+  } catch (ePrazo) {
+    Logger.log("Aviso registrarOrcamento: falha ao calcular prazo em dias: " + (ePrazo && ePrazo.message ? ePrazo.message : ePrazo));
+  }
 
   // Atribui PRD apenas a produtos cadastrados (chapas/peças não são mais usados no orçamento)
   chapas = chapas || [];
@@ -2136,6 +2190,36 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
     dadosParaJson.observacoes.projeto = codigoProjeto; // Garante PROJETO com versão (_v2) no JSON
     
     const agora = new Date();
+
+    // Data do último orçamento (usada no modal de Informações do Pedido)
+    try {
+      const agoraIso = agora.toISOString();
+      dadosParaJson.observacoes.dataUltimoOrcamento = agoraIso;
+      if (!dadosParaJson.infoPedido) dadosParaJson.infoPedido = {};
+      if (!dadosParaJson.infoPedido.dataUltimoOrcamento) {
+        dadosParaJson.infoPedido.dataUltimoOrcamento = agoraIso;
+      }
+    } catch (eDataUlt) {
+      Logger.log("Aviso registrarOrcamento: falha ao registrar dataUltimoOrcamento: " + (eDataUlt && eDataUlt.message ? eDataUlt.message : eDataUlt));
+    }
+
+    // Descrições consolidadas dos processos do pedido (para campo 'Descrições dos processos')
+    try {
+      let descProc = "";
+      if (dadosParaJson.processosPedido && Array.isArray(dadosParaJson.processosPedido)) {
+        descProc = dadosParaJson.processosPedido
+          .map(function (p) { return (p && p.descricao) ? String(p.descricao).trim() : ""; })
+          .filter(function (s) { return s && s.length > 0; })
+          .join(" / ");
+      }
+      if (!dadosParaJson.infoPedido) dadosParaJson.infoPedido = dadosParaJson.infoPedido || {};
+      if (descProc && !dadosParaJson.infoPedido.descricoesProcessos) {
+        dadosParaJson.infoPedido.descricoesProcessos = descProc;
+      }
+    } catch (eDescProc) {
+      Logger.log("Aviso registrarOrcamento: falha ao montar descricoesProcessos: " + (eDescProc && eDescProc.message ? eDescProc.message : eDescProc));
+    }
+
     const dadosJson = JSON.stringify({
       nome: codigoProjeto,
       dataSalvo: agora.toISOString(),
@@ -2180,7 +2264,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
       "LINK DA MEMÓRIA DE CÁLCULO": urlMemoria || "",
       "STATUS_ORCAMENTO": statusOrcamento,
       "STATUS_PEDIDO": statusPedidoInicial,
-      "PRAZO": prazo,
+      "PRAZO": prazoParaPlanilha,
       "PRAZO_PROPOSTA": prazoProposta,
       "OBSERVAÇÕES": observacoesKanban,
       "JSON_DADOS": dadosJson
@@ -2246,18 +2330,19 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
       }
     }
 
-    // Quando salvou como pedido: renomear pasta COT→PED e sincronizar aba Pedidos
-    if (isPedido && sheetProj && (codigoProjeto || "").length >= 6) {
-      try {
-        const codigoBase = String(codigoProjeto).replace(/_v\d+$/, "").trim();
-        const dataProj = codigoBase.substring(0, 6);
-        atualizarPrefixoPastaParaPedido(codigoBase, dataProj, cliente.nome || "", descricao);
-      } catch (ePasta) {
-        Logger.log("Aviso ao renomear pasta COT→PED em registrarOrcamento: " + (ePasta && ePasta.message));
+      // Quando salvou como pedido: renomear pasta COT→PED e sincronizar aba Pedidos
+      if (isPedido && sheetProj && (codigoProjeto || "").length >= 6) {
+        try {
+          const codigoBase = String(codigoProjeto).replace(/_v\d+$/, "").trim();
+          const dataProj = codigoBase.substring(0, 6);
+          const nomeAbrev = (dadosFormularioCompleto && dadosFormularioCompleto.cliente && dadosFormularioCompleto.cliente.nomeAbreviado) || "";
+          atualizarPrefixoPastaParaPedido(codigoBase, dataProj, cliente.nome || "", descricao, nomeAbrev);
+        } catch (ePasta) {
+          Logger.log("Aviso ao renomear pasta COT→PED em registrarOrcamento: " + (ePasta && ePasta.message));
+        }
+        const linhaPedido = linhaExistente || (targetSheet ? targetSheet.getLastRow() : 0);
+        if (linhaPedido >= 2) ensurePedidoRow(linhaPedido);
       }
-      const linhaPedido = linhaExistente || (targetSheet ? targetSheet.getLastRow() : 0);
-      if (linhaPedido >= 2) ensurePedidoRow(linhaPedido);
-    }
 
     // Insere os produtos cadastrados na "Relação de produtos" apenas quando é projeto NOVO.
     // Ao editar e gerar PDF de projeto existente, não reinsere (evita timeout: cada inserirProdutoNaRelacao lê a planilha inteira).
@@ -2271,7 +2356,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
             ncm: prod.ncm || "",
             preco: Number(prod.precoUnitario) || 0,
             unidade: prod.unidade || "UN",
-            caracteristicas: "",
+            caracteristicas: (prod.descricoesProcessos && typeof prod.descricoesProcessos === "object") ? JSON.stringify(prod.descricoesProcessos) : "",
             projeto: codigoProjeto || "",
             cliente: cliente.nome || "",
             processos: prod.processos && Array.isArray(prod.processos) ? prod.processos : []
@@ -2313,7 +2398,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
           "LINK DA MEMÓRIA DE CÁLCULO": urlMemoria || "",
           "STATUS_ORCAMENTO": "Rascunho",
           "STATUS_PEDIDO": "",
-          "PRAZO": prazo,
+          "PRAZO": prazoParaPlanilha,
           "PRAZO_PROPOSTA": prazoPropostaFallback,
           "OBSERVAÇÕES": observacoesKanbanFallback,
           "JSON_DADOS": dadosJson
@@ -2335,7 +2420,7 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
               ncm: prod.ncm || "",
               preco: Number(prod.precoUnitario) || 0,
               unidade: prod.unidade || "UN",
-              caracteristicas: "",
+              caracteristicas: (prod.descricoesProcessos && typeof prod.descricoesProcessos === "object") ? JSON.stringify(prod.descricoesProcessos) : "",
               projeto: codigoProjeto || "",
               cliente: cliente.nome || ""
             });
@@ -2460,6 +2545,30 @@ function _findHeaderIndex(headers, name) {
   }
   const target = _normalizeHeader(name);
   return indexMap[target] !== undefined ? indexMap[target] : -1;
+}
+
+/**
+ * Converte valor (Date do Sheets ou string) para formato brasileiro dd/MM/yyyy.
+ * Evita exibir "Fri Feb 27 2026 00:00:00 GMT-0300..." no front.
+ */
+function _formatarDataBr(value) {
+  if (value == null || value === "") return "";
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, tz, "dd/MM/yyyy");
+  }
+  var s = String(value).trim();
+  if (!s) return "";
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  var d = null;
+  if (s.indexOf("GMT") >= 0 || s.indexOf("T") >= 0) {
+    d = new Date(s);
+  } else {
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  }
+  if (d && !isNaN(d.getTime())) return Utilities.formatDate(d, tz, "dd/MM/yyyy");
+  return s;
 }
 
 /** Nomes das colunas da aba Projetos (ordem lógica; a escrita usa índice por cabeçalho) */
@@ -3631,6 +3740,17 @@ function exportarAvaliacoesPdf() {
 
 function getProjetos() {
   try {
+    // Backfill único: preencher infoPedido (dataVirouPedido = DATA_COMPETENCIA, etc.) a partir da aba Pedidos
+    try {
+      var docProps = PropertiesService.getDocumentProperties();
+      if (docProps.getProperty("backfillInfoPedidoDone") !== "1") {
+        backfillInfoPedidoFromPedidos();
+        docProps.setProperty("backfillInfoPedidoDone", "1");
+      }
+    } catch (eBackfill) {
+      Logger.log("getProjetos: backfill opcional falhou: " + (eBackfill.message || eBackfill));
+    }
+
     // Tenta usar aba Projetos primeiro
     const sheetProj = SHEET_PROJ;
     const targetSheet = sheetProj;
@@ -3893,14 +4013,14 @@ function getPedidosSheetMap() {
       var obj = { _linhaPedidos: r + 1 };
       if (idx.NF !== undefined) obj["NF"] = (row[idx.NF] != null && row[idx.NF] !== "") ? String(row[idx.NF]).trim() : "";
       if (idx.CONDICOES_PAGAMENTO !== undefined) obj["CONDICOES_PAGAMENTO"] = (row[idx.CONDICOES_PAGAMENTO] != null && row[idx.CONDICOES_PAGAMENTO] !== "") ? String(row[idx.CONDICOES_PAGAMENTO]).trim() : "";
-      if (idx.DATA_ENTREGA !== undefined) obj["DATA_ENTREGA"] = (row[idx.DATA_ENTREGA] != null && row[idx.DATA_ENTREGA] !== "") ? String(row[idx.DATA_ENTREGA]).trim() : "";
+      if (idx.DATA_ENTREGA !== undefined) obj["DATA_ENTREGA"] = (row[idx.DATA_ENTREGA] != null && row[idx.DATA_ENTREGA] !== "") ? _formatarDataBr(row[idx.DATA_ENTREGA]) : "";
       if (idx.DATA_VENCIMENTO !== undefined) obj["DATA_VENCIMENTO"] = (row[idx.DATA_VENCIMENTO] != null && row[idx.DATA_VENCIMENTO] !== "") ? String(row[idx.DATA_VENCIMENTO]).trim() : "";
       if (idx.VALOR_PAGO !== undefined) obj["VALOR_PAGO"] = row[idx.VALOR_PAGO];
       if (idx.STATUS_PAGAMENTO !== undefined) obj["STATUS_PAGAMENTO"] = (row[idx.STATUS_PAGAMENTO] != null && row[idx.STATUS_PAGAMENTO] !== "") ? String(row[idx.STATUS_PAGAMENTO]).trim() : "";
       if (idx.PARCELAS_E_PGTOS !== undefined) obj["PARCELAS_E_PGTOS"] = (row[idx.PARCELAS_E_PGTOS] != null && row[idx.PARCELAS_E_PGTOS] !== "") ? String(row[idx.PARCELAS_E_PGTOS]).trim() : "";
       if (idx.NUMERO_SEQUENCIAL !== undefined) obj["NUMERO_SEQUENCIAL"] = (row[idx.NUMERO_SEQUENCIAL] != null && row[idx.NUMERO_SEQUENCIAL] !== "") ? row[idx.NUMERO_SEQUENCIAL] : "";
       if (idx.OBS !== undefined) obj["OBS"] = (row[idx.OBS] != null && row[idx.OBS] !== "") ? String(row[idx.OBS]).trim() : "";
-      if (idx.DATA_COMPETENCIA !== undefined) obj["DATA_COMPETENCIA"] = (row[idx.DATA_COMPETENCIA] != null && row[idx.DATA_COMPETENCIA] !== "") ? String(row[idx.DATA_COMPETENCIA]).trim() : "";
+      if (idx.DATA_COMPETENCIA !== undefined) obj["DATA_COMPETENCIA"] = (row[idx.DATA_COMPETENCIA] != null && row[idx.DATA_COMPETENCIA] !== "") ? _formatarDataBr(row[idx.DATA_COMPETENCIA]) : "";
       if (idx.VALOR_TOTAL !== undefined) obj["VALOR_TOTAL"] = row[idx.VALOR_TOTAL];
       byProjeto[codigo] = obj;
     }
@@ -4556,6 +4676,25 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
           parsed.dados.observacoes.valorNF = dadosAtualizacao.NOTA_FISCAL;
           alterado = true;
         }
+        // Sincronizar infoPedido: dados alterados na página/aba Pedidos atualizam aqui
+        if (!parsed.dados.infoPedido) parsed.dados.infoPedido = {};
+        if (dadosAtualizacao.DATA_COMPETENCIA !== undefined) {
+          parsed.dados.infoPedido.dataVirouPedido = String(dadosAtualizacao.DATA_COMPETENCIA).trim();
+          alterado = true;
+        }
+        if (dadosAtualizacao.DATA_ENTREGA !== undefined) {
+          parsed.dados.infoPedido.dataEntrega = String(dadosAtualizacao.DATA_ENTREGA).trim();
+          parsed.dados.observacoes.dataEntrega = String(dadosAtualizacao.DATA_ENTREGA).trim();
+          alterado = true;
+        }
+        if (dadosAtualizacao.NOTA_FISCAL !== undefined) {
+          parsed.dados.infoPedido.notaFiscal = String(dadosAtualizacao.NOTA_FISCAL).trim();
+          alterado = true;
+        }
+        if (dadosAtualizacao.VALOR_TOTAL !== undefined && dadosAtualizacao.VALOR_TOTAL !== null && dadosAtualizacao.VALOR_TOTAL !== "") {
+          parsed.dados.infoPedido.valorPedido = dadosAtualizacao.VALOR_TOTAL;
+          alterado = true;
+        }
         if (alterado) {
           sheetProj.getRange(linha, idxJson + 1).setValue(JSON.stringify(parsed));
         }
@@ -4831,6 +4970,254 @@ function informarDataEntregaProjeto(linha, dataEntrega) {
 }
 
 /**
+ * Retorna informações consolidadas do pedido para um projeto (fonte primária em JSON_DADOS).
+ * @param {number} linha - Linha na aba Projetos (1-based)
+ */
+function getInfoPedido(linha) {
+  linha = Number(linha);
+  if (!linha || linha < 2) throw new Error("Linha inválida.");
+
+  const sheetProj = SHEET_PROJ;
+  if (!sheetProj) throw new Error("Aba 'Projetos' não encontrada.");
+
+  const lastCol = sheetProj.getLastColumn();
+  const headers = sheetProj.getRange(1, 1, 1, lastCol).getValues()[0];
+  const row = sheetProj.getRange(linha, 1, linha, lastCol).getValues()[0];
+
+  const idxCliente = _findHeaderIndex(headers, "CLIENTE");
+  const idxProjeto = _findHeaderIndex(headers, "PROJETO");
+  const idxValorTotal = _findHeaderIndex(headers, "VALOR TOTAL");
+  const idxData = _findHeaderIndex(headers, "DATA");
+  const idxProcessos = _findHeaderIndex(headers, "PROCESSOS");
+  const idxJson = _findHeaderIndex(headers, "JSON_DADOS");
+
+  const cliente = idxCliente >= 0 ? String(row[idxCliente] || "").trim() : "";
+  const projeto = idxProjeto >= 0 ? String(row[idxProjeto] || "").trim() : "";
+  const valorTotal = idxValorTotal >= 0 ? row[idxValorTotal] : "";
+  const dataCriacao = idxData >= 0 ? _formatarDataBr(row[idxData]) : "";
+  const processos = idxProcessos >= 0 ? String(row[idxProcessos] || "").trim() : "";
+
+  let infoPedido = {
+    projeto: projeto,
+    cliente: cliente,
+    valorPedido: valorTotal !== undefined && valorTotal !== null && valorTotal !== "" ? String(valorTotal) : "",
+    processos: processos || "",
+    descricoesProcessos: "",
+    dataCriacao: dataCriacao || "",
+    dataUltimoOrcamento: "",
+    dataVirouPedido: "",
+    dataFimProducao: "",
+    dataEntrega: "",
+    notaFiscal: "",
+    statusDates: {}
+  };
+
+  if (idxJson >= 0 && row[idxJson] && typeof row[idxJson] === "string") {
+    try {
+      const parsed = JSON.parse(row[idxJson]);
+      const dados = parsed && parsed.dados ? parsed.dados : {};
+      const obs = dados.observacoes || {};
+      const ip = dados.infoPedido || {};
+
+      if (obs.dataCriacao) infoPedido.dataCriacao = _formatarDataBr(obs.dataCriacao);
+      if (obs.dataUltimoOrcamento) infoPedido.dataUltimoOrcamento = _formatarDataBr(obs.dataUltimoOrcamento);
+      if (obs.dataEntrega) infoPedido.dataEntrega = _formatarDataBr(obs.dataEntrega);
+
+      if (ip.dataCriacao) infoPedido.dataCriacao = _formatarDataBr(ip.dataCriacao);
+      if (ip.dataUltimoOrcamento) infoPedido.dataUltimoOrcamento = _formatarDataBr(ip.dataUltimoOrcamento);
+      if (ip.dataVirouPedido) infoPedido.dataVirouPedido = _formatarDataBr(ip.dataVirouPedido);
+      if (ip.dataFimProducao) infoPedido.dataFimProducao = _formatarDataBr(ip.dataFimProducao);
+      if (ip.dataEntrega) infoPedido.dataEntrega = _formatarDataBr(ip.dataEntrega);
+      if (ip.notaFiscal) infoPedido.notaFiscal = String(ip.notaFiscal).trim();
+      if (ip.valorPedido != null && ip.valorPedido !== "") infoPedido.valorPedido = String(ip.valorPedido);
+      if (ip.cliente) infoPedido.cliente = String(ip.cliente).trim();
+      if (ip.processos) infoPedido.processos = String(ip.processos).trim();
+      if (ip.descricoesProcessos) infoPedido.descricoesProcessos = String(ip.descricoesProcessos).trim();
+      if (ip.statusDates && typeof ip.statusDates === "object") {
+        infoPedido.statusDates = {};
+        for (var k in ip.statusDates) { if (Object.prototype.hasOwnProperty.call(ip.statusDates, k)) infoPedido.statusDates[k] = _formatarDataBr(ip.statusDates[k]); }
+      }
+    } catch (e) {
+      Logger.log("getInfoPedido: erro ao ler JSON_DADOS: " + (e.message || e));
+    }
+  }
+
+  // Preencher campos em branco a partir da aba Pedidos (data que virou pedido = DATA_COMPETENCIA, etc.)
+  if (projeto) {
+    try {
+      var pedidosMap = getPedidosSheetMap();
+      var rowPed = pedidosMap[projeto];
+      if (rowPed) {
+        var dataComp = _formatarDataBr(rowPed.DATA_COMPETENCIA);
+        if (dataComp && !infoPedido.dataVirouPedido) infoPedido.dataVirouPedido = dataComp;
+        var dataEnt = _formatarDataBr(rowPed.DATA_ENTREGA);
+        if (dataEnt && !infoPedido.dataEntrega) infoPedido.dataEntrega = dataEnt;
+        var nf = (rowPed.NF || "").toString().trim();
+        if (nf && !infoPedido.notaFiscal) infoPedido.notaFiscal = nf;
+        if (rowPed.VALOR_TOTAL != null && rowPed.VALOR_TOTAL !== "" && !infoPedido.valorPedido) infoPedido.valorPedido = String(rowPed.VALOR_TOTAL);
+      }
+    } catch (e) {
+      Logger.log("getInfoPedido: erro ao preencher da aba Pedidos: " + (e.message || e));
+    }
+  }
+
+  return infoPedido;
+}
+
+/**
+ * Salva informações do pedido (fonte primária) e sincroniza campos em Projetos/Pedidos.
+ * @param {number} linha - Linha na aba Projetos (1-based)
+ * @param {Object} info - Objeto com campos de info do pedido
+ */
+function salvarInfoPedido(linha, info) {
+  linha = Number(linha);
+  if (!linha || linha < 2) throw new Error("Linha inválida.");
+
+  const sheetProj = SHEET_PROJ;
+  if (!sheetProj) throw new Error("Aba 'Projetos' não encontrada.");
+
+  const lastCol = sheetProj.getLastColumn();
+  const headers = sheetProj.getRange(1, 1, 1, lastCol).getValues()[0];
+  const row = sheetProj.getRange(linha, 1, linha, lastCol).getValues()[0];
+
+  const idxCliente = _findHeaderIndex(headers, "CLIENTE");
+  const idxProjeto = _findHeaderIndex(headers, "PROJETO");
+  const idxValorTotal = _findHeaderIndex(headers, "VALOR TOTAL");
+  const idxProcessos = _findHeaderIndex(headers, "PROCESSOS");
+  const idxJson = _findHeaderIndex(headers, "JSON_DADOS");
+
+  const codigoProjeto = idxProjeto >= 0 ? String(row[idxProjeto] || "").trim() : "";
+  if (!codigoProjeto) throw new Error("Código do projeto não encontrado.");
+
+  let parsed = { dados: {} };
+  if (idxJson >= 0 && row[idxJson] && typeof row[idxJson] === "string") {
+    try {
+      parsed = JSON.parse(row[idxJson]) || { dados: {} };
+    } catch (e) {
+      parsed = { dados: {} };
+    }
+  }
+  if (!parsed.dados) parsed.dados = {};
+  parsed.dados.infoPedido = parsed.dados.infoPedido || {};
+  const ip = parsed.dados.infoPedido;
+
+  ip.dataCriacao = info.dataCriacao || ip.dataCriacao || "";
+  ip.dataUltimoOrcamento = info.dataUltimoOrcamento || ip.dataUltimoOrcamento || "";
+  ip.dataVirouPedido = info.dataVirouPedido || ip.dataVirouPedido || "";
+  ip.dataFimProducao = info.dataFimProducao || ip.dataFimProducao || "";
+  ip.dataEntrega = info.dataEntrega || ip.dataEntrega || "";
+  ip.notaFiscal = info.notaFiscal || "";
+  ip.valorPedido = info.valorPedido !== undefined && info.valorPedido !== "" ? info.valorPedido : (ip.valorPedido || "");
+  ip.cliente = info.cliente || ip.cliente || "";
+  ip.processos = info.processos || ip.processos || "";
+  ip.descricoesProcessos = info.descricoesProcessos || ip.descricoesProcessos || "";
+  ip.statusDates = info.statusDates && typeof info.statusDates === "object" ? info.statusDates : (ip.statusDates || {});
+
+  if (!parsed.dados.observacoes) parsed.dados.observacoes = {};
+  if (ip.dataEntrega) parsed.dados.observacoes.dataEntrega = ip.dataEntrega;
+
+  const jsonNovo = JSON.stringify(parsed);
+  if (idxJson >= 0) {
+    sheetProj.getRange(linha, idxJson + 1).setValue(jsonNovo);
+    SheetCache.invalidate(sheetProj);
+  }
+
+  const updatesProj = {};
+  if (info.cliente && idxCliente >= 0) updatesProj.CLIENTE = info.cliente;
+  if (info.valorPedido && idxValorTotal >= 0) updatesProj["VALOR TOTAL"] = info.valorPedido;
+  if (info.processos && idxProcessos >= 0) updatesProj.PROCESSOS = info.processos;
+  if (Object.keys(updatesProj).length > 0) {
+    _escreverLinhaProjetosPorCabecalho(sheetProj, linha, updatesProj, true);
+    SheetCache.invalidate(sheetProj);
+  }
+
+  const updatesPed = {};
+  if (info.notaFiscal !== undefined) updatesPed.NOTA_FISCAL = info.notaFiscal;
+  if (info.valorPedido !== undefined && info.valorPedido !== "") updatesPed.VALOR_TOTAL = info.valorPedido;
+  if (ip.dataEntrega) updatesPed.DATA_ENTREGA = ip.dataEntrega;
+
+  if (Object.keys(updatesPed).length > 0) {
+    const idxDataComp = _findHeaderIndex(headers, "DATA_COMPETENCIA");
+    const idxDataCompAlt = _findHeaderIndex(headers, "DATA COMPETÊNCIA");
+    const idxData = _findHeaderIndex(headers, "DATA");
+    const dataComp = (idxDataComp >= 0 && row[idxDataComp]) ? String(row[idxDataComp]).trim() : "";
+    const dataCompAlt = (idxDataCompAlt >= 0 && row[idxDataCompAlt]) ? String(row[idxDataCompAlt]).trim() : "";
+    const dataVal = (idxData >= 0 && row[idxData]) ? String(row[idxData]).trim() : "";
+    const valorTotalRow = idxValorTotal >= 0 ? row[idxValorTotal] : "";
+    atualizarPedidoNaPlanilha(codigoProjeto, updatesPed, {
+      CLIENTE: info.cliente || (idxCliente >= 0 ? row[idxCliente] : ""),
+      "VALOR TOTAL": info.valorPedido || valorTotalRow || "",
+      _dataCompetencia: dataComp || dataCompAlt || dataVal,
+      _linhaPlanilha: linha
+    });
+  }
+
+  return { success: true };
+}
+
+/**
+ * Backfill: preenche JSON_DADOS.dados.infoPedido com dados já existentes na aba Pedidos.
+ * dataVirouPedido = DATA_COMPETENCIA, dataEntrega = DATA_ENTREGA, notaFiscal = NF, valorPedido = VALOR_TOTAL.
+ * Executado uma vez (ou manualmente) para projetos convertidos em pedido que ainda não têm essas datas no modal.
+ */
+function backfillInfoPedidoFromPedidos() {
+  try {
+    var sheetProj = SHEET_PROJ;
+    if (!sheetProj || sheetProj.getLastRow() < 2) return { ok: true, atualizados: 0 };
+    var pedidosMap = getPedidosSheetMap();
+    var data = SheetCache.getData(sheetProj);
+    var headers = data[0];
+    var idxStatusOrc = _findHeaderIndex(headers, "STATUS_ORCAMENTO");
+    var idxProjeto = _findHeaderIndex(headers, "PROJETO");
+    var idxJson = _findHeaderIndex(headers, "JSON_DADOS");
+    if (idxStatusOrc < 0 || idxProjeto < 0 || idxJson < 0) return { ok: true, atualizados: 0 };
+
+    var atualizados = 0;
+    for (var r = 1; r < data.length; r++) {
+      var row = data[r];
+      var statusOrc = (row[idxStatusOrc] || "").toString().trim();
+      if (statusOrc !== "Convertido em Pedido") continue;
+      var codigo = (row[idxProjeto] || "").toString().trim();
+      if (!codigo) continue;
+      var rowPed = pedidosMap[codigo];
+      if (!rowPed) continue;
+
+      var dataComp = _formatarDataBr(rowPed.DATA_COMPETENCIA);
+      var dataEnt = _formatarDataBr(rowPed.DATA_ENTREGA);
+      var nf = (rowPed.NF || "").toString().trim();
+      var valorTotal = rowPed.VALOR_TOTAL != null && rowPed.VALOR_TOTAL !== "" ? String(rowPed.VALOR_TOTAL) : "";
+
+      if (!dataComp && !dataEnt && !nf && !valorTotal) continue;
+
+      var jsonCell = row[idxJson];
+      var parsed = null;
+      if (jsonCell && typeof jsonCell === "string" && jsonCell.trim()) {
+        try { parsed = JSON.parse(jsonCell); } catch (e) { parsed = null; }
+      }
+      if (!parsed || typeof parsed !== "object") parsed = { dados: {} };
+      if (!parsed.dados) parsed.dados = {};
+      if (!parsed.dados.infoPedido) parsed.dados.infoPedido = {};
+      var ip = parsed.dados.infoPedido;
+      var alterado = false;
+      if (dataComp && !ip.dataVirouPedido) { ip.dataVirouPedido = dataComp; alterado = true; }
+      if (dataEnt) { ip.dataEntrega = dataEnt; if (!parsed.dados.observacoes) parsed.dados.observacoes = {}; parsed.dados.observacoes.dataEntrega = dataEnt; alterado = true; }
+      if (nf) { ip.notaFiscal = nf; alterado = true; }
+      if (valorTotal) { ip.valorPedido = valorTotal; alterado = true; }
+      if (alterado) {
+        sheetProj.getRange(r + 1, idxJson + 1).setValue(JSON.stringify(parsed));
+        atualizados++;
+      }
+    }
+    SheetCache.invalidate(sheetProj);
+    Logger.log("backfillInfoPedidoFromPedidos: " + atualizados + " linhas atualizadas.");
+    return { ok: true, atualizados: atualizados };
+  } catch (e) {
+    Logger.log("backfillInfoPedidoFromPedidos error: " + (e.message || e));
+    throw new Error(e.message || "Erro no backfill");
+  }
+}
+
+/**
  * Adiciona um novo projeto na planilha (usado quando projeto já virou pedido externamente)
  * @param {Object} projeto - Objeto com os dados do projeto
  */
@@ -4928,6 +5315,23 @@ function getProdutos() {
 
         obj[h] = valor;
       });
+
+      // Se a coluna "Características" contiver um JSON com descrições de processos, expõe em descricoesProcessos
+      try {
+        const carac = obj["Características"];
+        if (carac && typeof carac === "string") {
+          const trimmed = carac.trim();
+          if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === "object") {
+              obj.descricoesProcessos = parsed;
+            }
+          }
+        }
+      } catch (eCarac) {
+        Logger.log("Aviso getProdutos: falha ao interpretar Características como descricoesProcessos: " + (eCarac && eCarac.message ? eCarac.message : eCarac));
+      }
+
       obj["_linhaPlanilha"] = index + 2;
       return obj;
     });
@@ -4959,6 +5363,7 @@ function atualizarStatusKanban(cliente, projeto, novoStatus) {
       const idxStatusOrc = _findHeaderIndex(headers, "STATUS_ORCAMENTO");
       const idxDescricao = _findHeaderIndex(headers, "DESCRIÇÃO");
       const idxProcessos = _findHeaderIndex(headers, "PROCESSOS");
+      const idxJsonDados = _findHeaderIndex(headers, "JSON_DADOS");
 
       // Valida índices
       if (idxCliente < 0 || idxProjeto < 0 || idxStatusPed < 0) {
@@ -5004,6 +5409,47 @@ function atualizarStatusKanban(cliente, projeto, novoStatus) {
           const statusPedidoFinal = !statusAntigo ? "Processo de Preparação MP / CAD / CAM" : novoStatus;
           sheetProj.getRange(i + 1, idxStatusPed + 1).setValue(statusPedidoFinal);
           SheetCache.invalidate(sheetProj);
+
+          // Datas automáticas por mudança de status (armazenadas em JSON_DADOS.dados.infoPedido)
+          if (idxJsonDados >= 0) {
+            try {
+              const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone() || "America/Sao_Paulo";
+              const hoje = new Date();
+              const dataHojeStr = Utilities.formatDate(hoje, tz, "dd/MM/yyyy");
+              let jsonCell = row[idxJsonDados];
+              let parsed = (jsonCell && typeof jsonCell === "string") ? (function () { try { return JSON.parse(jsonCell); } catch (e) { return null; } })() : null;
+              if (!parsed || typeof parsed !== "object") parsed = { dados: {} };
+              if (!parsed.dados) parsed.dados = {};
+                if (!parsed.dados.infoPedido) parsed.dados.infoPedido = {};
+                const info = parsed.dados.infoPedido;
+              if (!info.statusDates) info.statusDates = {};
+
+              if (!info.dataVirouPedido && statusAntigo === "" && statusPedidoFinal && statusPedidoFinal !== "-") {
+                info.dataVirouPedido = dataHojeStr;
+              }
+              if (/Preparação MP \/ CAD \/ CAM/i.test(statusPedidoFinal) && !info.statusDates.preparacao) info.statusDates.preparacao = dataHojeStr;
+              if (/Processo de Corte/i.test(statusPedidoFinal) && !info.statusDates.corte) info.statusDates.corte = dataHojeStr;
+              if (/Processo de Dobra/i.test(statusPedidoFinal) && !info.statusDates.dobra) info.statusDates.dobra = dataHojeStr;
+              if (/Processos Adicionais/i.test(statusPedidoFinal) && !info.statusDates.adicionais) info.statusDates.adicionais = dataHojeStr;
+              if (/Envio \/ Coleta/i.test(statusPedidoFinal)) {
+                if (!info.statusDates.envioColeta) info.statusDates.envioColeta = dataHojeStr;
+                if (!info.dataFimProducao) info.dataFimProducao = dataHojeStr;
+              }
+              if (statusPedidoFinal === "Finalizado") {
+                if (!info.dataEntrega) info.dataEntrega = dataHojeStr;
+              }
+              if (!parsed.dados.observacoes) parsed.dados.observacoes = {};
+              if (info.dataEntrega) parsed.dados.observacoes.dataEntrega = info.dataEntrega;
+
+              sheetProj.getRange(i + 1, idxJsonDados + 1).setValue(JSON.stringify(parsed));
+              SheetCache.invalidate(sheetProj);
+              if (info.dataEntrega) {
+                informarDataEntregaProjeto(i + 1, info.dataEntrega);
+              }
+            } catch (errDatas) {
+              Logger.log("atualizarStatusKanban: falha ao registrar datas automáticas: " + (errDatas.message || errDatas));
+            }
+          }
           break;
         }
       }

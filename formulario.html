@@ -137,8 +137,8 @@
             display: inline-flex;
             gap: 8px;
             align-items: center;
-            background: var(--accent);
-            color: #fff;
+            background: #1a73e8;
+            color: white;
         }
 
         button.secondary {
@@ -215,7 +215,6 @@
             border-top-color: transparent;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
-            will-change: transform;
         }
 
         @keyframes spin {
@@ -443,12 +442,6 @@
                     ⚠️ <strong>Você está criando um NOVO projeto.</strong> O projeto original será mantido.
                 </div>
 
-                <!-- RF003: Aviso de código de projeto já existente -->
-                <div id="bannerProjetoExistente"
-                    style="display:none; background:#fdecea; border:1px solid #e53935; border-radius:6px; padding:10px 14px; margin-bottom:10px; color:#b71c1c;">
-                    🚫 <strong>Este código de projeto já existe!</strong> Se continuar, irá sobrescrever o projeto existente.
-                </div>
-
                 <div class="row">
                     <div class="col">
                         <label>Data (ANO + MES + DIA):</label>
@@ -605,13 +598,15 @@
                 <div class="row">
                     <div class="col">
                         <label>Prazo da Proposta:</label>
-                        <input type="date" id="obsPrazoProposta"
-                            title="Exibido na coluna Processo de orçamento do Kanban">
+                        <input type="text" id="obsPrazoProposta"
+                            title="Exibido na coluna Processo de orçamento do Kanban"
+                            placeholder="Data ou texto (ex: 15 dias)">
                         <small class="note">Usado no Kanban (coluna Processo de orçamento)</small>
                     </div>
                     <div class="col">
                         <label>Prazo de entrega:</label>
-                        <input type="date" id="obsPrazo">
+                        <input type="text" id="obsPrazo"
+                            placeholder="Data ou texto (ex: 9 dias a partir do pedido)">
                     </div>
                 </div>
                 <div class="row">
@@ -687,7 +682,10 @@
 
                 <div class="row" style="margin-top:8px;">
                     <div class="col">
-                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">📁 Criar/Enviar para pasta 01_IN</button>
+                        <button type="button" id="btnEnviarArquivos" class="secondary" onclick="EnviarArquivos()">📁 Criar Pasta / Enviar Arquivos</button>
+                        <!-- Botão específico de criar pasta 01_IN mantido apenas para compatibilidade; fluxo principal usa o botão acima -->
+                        <!-- <button type="button" id="btnCriarPasta01IN" class="secondary"
+                            onclick="criarPasta01INAction()">📁 Criar pasta 01_IN</button> -->
                         <button type="button" id="btnAbrirPasta01IN" class="secondary"
                             onclick="abrirPasta01INAction()">🔗 Abrir pasta 01_IN</button>
                         <div id="arquivosStatus" class="note"></div>
@@ -732,13 +730,13 @@
                 </div>
                 <div class="form-actions-buttons" style="display:flex; gap:5px; align-items:left; flex-wrap:wrap;">
                     <button type="button" onclick="limparFormularioCompleto()"
-                        style="background:#831414; color:white;">🗑️ Limpar Formulário</button>
-                    <button type="button" onclick="salvarOrcamento()" style="background:#354b75; color:white;">💾
-                        Salvar</button>
+                        style="background:#af1f1f; color:white;">🗑️ Limpar Formulário</button>
                     <button type="button" id="btnPreviewPdf" onclick="calcular(false, true)"
-                        style="background:#354b75; color:white;">👁 Ver Prévia do PDF</button>
-                    <button type="button" id="btnGerar" onclick="calcularComVerificacao()" style="background:#59963d; color:white;">📄
-                        Finalizar e Gerar Proposta</button>
+                        style="background:#4e818a; color:white;">👁 Ver Prévia do PDF</button>
+                        <button type="button" onclick="salvarOrcamento()" style="background:#59963d; color:white;">💾
+                        Salvar</button>
+                    <button type="button" id="btnGerar" onclick="calcular()" style="background:#59963d; color:white;">📄
+                        Gerar PDF</button>
                 </div>
 
                 <input type="radio" name="modoVersaoPdf" value="sobrescrever" checked hidden aria-hidden="true">
@@ -764,14 +762,6 @@
         var _originalProjetoIndice = null;
         var _originalProjetoIniciais = null;
 
-        // RF002b: Flag para saber se o índice foi alterado manualmente pelo usuário (ou carregado de projeto existente)
-        // false = índice foi calculado pelo sistema (detectarProximoIndice); recalcula se data/iniciais mudar
-        // true  = índice foi digitado pelo usuário ou veio de projeto carregado; preserva mesmo se data/iniciais mudar
-        var _indiceManualmenteAlterado = false;
-
-        // RF003: Timer de debounce para verificação visual de código de projeto existente
-        var _verificarDuplicadoTimer = null;
-
         // RF002: Nomes dos processos (mapeamento sigla → nome completo)
         var _NOMES_PROCESSOS = { MP: "Matéria Prima", CL: "Corte Laser", D: "Dobra", S: "Solda", Pin: "Pintura", CAD: "Desenvolvimento CAD", ACB: "Acabamento" };
 
@@ -781,11 +771,11 @@
                     if (!usuarioObj) return;
 
                     // Preenche nome completo do vendedor
-                    const vendedorInput = _el.obsVendedor;
+                    const vendedorInput = document.getElementById("obsVendedor");
                     vendedorInput.value = usuarioObj.usuario || "";
 
                     // Preenche iniciais personalizadas (editável pelo usuário) — sempre atualiza com as do servidor ao carregar
-                    const iniciaisInput = _el.projetoIniciais;
+                    const iniciaisInput = document.getElementById("projetoIniciais");
                     if (usuarioObj.iniciais) {
                         iniciaisInput.value = usuarioObj.iniciais;
                     } else if (!iniciaisInput.value) {
@@ -823,7 +813,7 @@
         function validarDescricaoSemCOTPED(descricao) {
             if (descricaoContemCOTouPED(descricao)) {
                 alert("A descrição do projeto não pode conter as palavras COT ou PED (são reservadas pelo sistema para nomear pastas).");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return false;
             }
             return true;
@@ -847,74 +837,20 @@
 
         /* ---------- INICIALIZAÇÃO ---------- */
 
-        /* ---------- DOM ELEMENT CACHE ---------- */
-        // Cache frequently accessed elements to avoid repeated DOM queries
-        const _el = {
-            projetoData:              document.getElementById("projetoData"),
-            projetoIndice:            document.getElementById("projetoIndice"),
-            projetoIniciais:          document.getElementById("projetoIniciais"),
-            obsProjeto:               document.getElementById("obsProjeto"),
-            obsDescricao:             document.getElementById("obsDescricao"),
-            obsPrazoProposta:         document.getElementById("obsPrazoProposta"),
-            obsPrazo:                 document.getElementById("obsPrazo"),
-            obsVendedor:              document.getElementById("obsVendedor"),
-            obsMaterialCond:          document.getElementById("obsMaterialCond"),
-            obsTransporte:            document.getElementById("obsTransporte"),
-            obsPagamento:             document.getElementById("obsPagamento"),
-            obsAdicional:             document.getElementById("obsAdicional"),
-            obsKanban:                document.getElementById("obsKanban"),
-            obsProcessos:             document.getElementById("obsProcessos"),
-            obsTemNotaFiscal:         document.getElementById("obsTemNotaFiscal"),
-            clienteNome:              document.getElementById("clienteNome"),
-            clienteNomeAbreviado:     document.getElementById("clienteNomeAbreviado"),
-            clienteCpf:               document.getElementById("clienteCpf"),
-            clienteEndereco:          document.getElementById("clienteEndereco"),
-            clienteTelefone:          document.getElementById("clienteTelefone"),
-            clienteEmail:             document.getElementById("clienteEmail"),
-            clienteResponsavel:       document.getElementById("clienteResponsavel"),
-            clienteData:              document.getElementById("clienteData"),
-            clientesList:             document.getElementById("clientesList"),
-            produtosCadastradosContainer: document.getElementById("produtosCadastradosContainer"),
-            processosPedidoContainer:     document.getElementById("processosPedidoContainer"),
-            previewStatus:            document.getElementById("previewStatus"),
-            previewTotal:             document.getElementById("previewTotal"),
-            previewDetalhamento:      document.getElementById("previewDetalhamento"),
-            previewLoading:           document.getElementById("previewLoading"),
-            bannerNovoProjeto:        document.getElementById("bannerNovoProjeto"),
-            bannerProjetoExistente:   document.getElementById("bannerProjetoExistente"),
-            rascunhoBusca:            document.getElementById("rascunhoBusca"),
-            rascunhoSelectKey:        document.getElementById("rascunhoSelectKey"),
-            rascunhosList:            document.getElementById("rascunhosList"),
-            orcamentoCarregadoInfo:   document.getElementById("orcamentoCarregadoInfo"),
-            orcamentoCarregadoNome:   document.getElementById("orcamentoCarregadoNome"),
-            orcamentoCarregadoStatus: document.getElementById("orcamentoCarregadoStatus"),
-            versaoPicker:             document.getElementById("versaoPicker"),
-            versaoPickerContainer:    document.getElementById("versaoPickerContainer"),
-            modoVersaoPdfNova:        document.getElementById("modoVersaoPdfNova"),
-            btnCarregarRascunho:      document.getElementById("btnCarregarRascunho"),
-            btnAbrirPasta01IN:        document.getElementById("btnAbrirPasta01IN"),
-            btnEnviarArquivos:        document.getElementById("btnEnviarArquivos"),
-            btnPreviewPdf:            document.getElementById("btnPreviewPdf"),
-            btnGerar:                 document.getElementById("btnGerar"),
-            arquivosCliente:          document.getElementById("arquivosCliente"),
-            arquivosStatus:           document.getElementById("arquivosStatus"),
-            hiddenCodigoProjeto:      document.getElementById("hiddenCodigoProjeto"),
-            hiddenNomePasta:          document.getElementById("hiddenNomePasta"),
-            hiddenDataProjeto:        document.getElementById("hiddenDataProjeto"),
-        };
 
         const today = new Date();
-        _el.projetoData.value = String(today.getFullYear()).slice(2) +
+        document.getElementById("projetoData").value = String(today.getFullYear()).slice(2) +
             String(today.getMonth() + 1).padStart(2, '0') +
             String(today.getDate()).padStart(2, '0');
-        _el.clienteData.value = today.toISOString().slice(0, 10);
+        document.getElementById("clienteData").value = today.toISOString().slice(0, 10);
 
         /* ---------- CLIENTE ---------- */
         let listaClientes = [];
         function carregarClientes() {
             google.script.run.withSuccessHandler(function (clientes) {
                 listaClientes = clientes;
-                _el.clientesList.innerHTML = clientes.map(c =>
+                const datalist = document.getElementById("clientesList");
+                datalist.innerHTML = clientes.map(c =>
                     `<option value="${c.nome}" data-nome="${c.nome}">${c.nome}</option>`
                 ).join('');
             }).getTodosClientes();
@@ -922,8 +858,8 @@
         carregarClientes();
 
         // Campo único de cliente (busca ou novo cadastro)
-        const clienteNomeInput = _el.clienteNome;
-        const clientesDatalist = _el.clientesList;
+        const clienteNomeInput = document.getElementById("clienteNome");
+        const clientesDatalist = document.getElementById("clientesList");
 
         // Função para filtrar clientes e atualizar datalist
         function filtrarClientes(termo) {
@@ -972,19 +908,19 @@
 
         function preencherDadosCliente(c) {
             if (c) {
-                _el.clienteNome.value = c.nome;
-                _el.clienteNomeAbreviado.value = c.nomeAbreviado || "";
-                _el.clienteCpf.value = c.cpf || "";
-                _el.clienteEndereco.value = c.endereco || "";
-                _el.clienteTelefone.value = c.telefone || "";
-                _el.clienteEmail.value = c.email || "";
+                document.getElementById("clienteNome").value = c.nome;
+                document.getElementById("clienteNomeAbreviado").value = c.nomeAbreviado || "";
+                document.getElementById("clienteCpf").value = c.cpf || "";
+                document.getElementById("clienteEndereco").value = c.endereco || "";
+                document.getElementById("clienteTelefone").value = c.telefone || "";
+                document.getElementById("clienteEmail").value = c.email || "";
             } else {
-                _el.clienteNome.value = "";
-                _el.clienteNomeAbreviado.value = "";
-                _el.clienteCpf.value = "";
-                _el.clienteEndereco.value = "";
-                _el.clienteTelefone.value = "";
-                _el.clienteEmail.value = "";
+                document.getElementById("clienteNome").value = "";
+                document.getElementById("clienteNomeAbreviado").value = "";
+                document.getElementById("clienteCpf").value = "";
+                document.getElementById("clienteEndereco").value = "";
+                document.getElementById("clienteTelefone").value = "";
+                document.getElementById("clienteEmail").value = "";
             }
         }
 
@@ -1000,7 +936,7 @@
         carregarProdutosCadastrados();
 
         function addProdutoCadastrado(appendAtEnd) {
-            const container = _el.produtosCadastradosContainer;
+            const container = document.getElementById("produtosCadastradosContainer");
             const div = document.createElement("div");
             div.className = "produto-cadastrado";
             div.style.border = "1px solid #e0e6f0";
@@ -1495,23 +1431,21 @@
         // para obter o próximo disponível (b, c...) se "a" já existir para aquela data+iniciais.
         // Índices b, c, h, etc.: usuário alterou manualmente, sempre preservar.
         function atualizarCamposProjeto(preserveIndice) {
-            const data = _el.projetoData.value.trim();
-            const iniciais = _el.projetoIniciais.value.trim();
-            const indiceAtual = _el.projetoIndice.value.trim();
+            const data = document.getElementById("projetoData").value.trim();
+            const iniciais = document.getElementById("projetoIniciais").value.trim();
+            const indiceAtual = document.getElementById("projetoIndice").value.trim();
 
             // Carregando projeto: usa o índice do projeto carregado
             if (preserveIndice === true) {
                 const codigoProjeto = data + indiceAtual + iniciais;
-                _el.obsProjeto.value = codigoProjeto;
-                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
+                document.getElementById("obsProjeto").value = codigoProjeto;
                 return;
             }
 
-            // Índice alterado manualmente pelo usuário (ou carregado de projeto existente): preservar
-            if (_indiceManualmenteAlterado) {
+            // Índice diferente de "a" e não vazio: usuário alterou manualmente (ex.: b, c, h)
+            if (indiceAtual !== "" && indiceAtual.toLowerCase() !== "a") {
                 const codigoProjeto = data + indiceAtual + iniciais;
-                _el.obsProjeto.value = codigoProjeto;
-                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
+                document.getElementById("obsProjeto").value = codigoProjeto;
                 return;
             }
 
@@ -1519,35 +1453,31 @@
             if (data && iniciais && data.length === 6) {
                 google.script.run
                     .withSuccessHandler(function (proximoIndice) {
-                        _el.projetoIndice.value = proximoIndice || "a";
-                        const indice = _el.projetoIndice.value;
-                        const iniciaisAtual = _el.projetoIniciais.value.trim();
+                        document.getElementById("projetoIndice").value = proximoIndice || "a";
+                        const indice = document.getElementById("projetoIndice").value;
+                        const iniciaisAtual = document.getElementById("projetoIniciais").value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
-                        _el.obsProjeto.value = codigoProjeto;
-                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
+                        document.getElementById("obsProjeto").value = codigoProjeto;
                     })
                     .withFailureHandler(function (err) {
-                        _el.projetoIndice.value = "a";
-                        const indice = _el.projetoIndice.value;
-                        const iniciaisAtual = _el.projetoIniciais.value.trim();
+                        document.getElementById("projetoIndice").value = "a";
+                        const indice = document.getElementById("projetoIndice").value;
+                        const iniciaisAtual = document.getElementById("projetoIniciais").value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
-                        _el.obsProjeto.value = codigoProjeto;
-                        verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
+                        document.getElementById("obsProjeto").value = codigoProjeto;
                     })
                     .detectarProximoIndice(data, iniciais);
             } else {
-                const indice = _el.projetoIndice.value || "a";
+                const indice = document.getElementById("projetoIndice").value || "a";
                 const codigoProjeto = data + indice + iniciais;
-                _el.obsProjeto.value = codigoProjeto;
-                verificarCodigoProjetoDuplicadoVisual(codigoProjeto);
+                document.getElementById("obsProjeto").value = codigoProjeto;
             }
         }
 
         ["projetoData", "projetoIniciais"].forEach(id => {
-            _el[id].addEventListener("input", function () { atualizarCamposProjeto(); verificarMudancaCampoProjeto(); });
+            document.getElementById(id).addEventListener("input", function () { atualizarCamposProjeto(); verificarMudancaCampoProjeto(); });
         });
-        _el.projetoIndice.addEventListener("input", function () {
-            _indiceManualmenteAlterado = true;
+        document.getElementById("projetoIndice").addEventListener("input", function () {
             atualizarCamposProjeto(true);
             verificarMudancaCampoProjeto();
         });
@@ -1557,70 +1487,26 @@
         // RF001: Detectar mudança em campos do projeto (Data, Índice, Iniciais) ao comparar com originais
         function verificarMudancaCampoProjeto() {
             if (_originalProjetoData === null && _originalProjetoIndice === null && _originalProjetoIniciais === null) return;
-            var data = _el.projetoData.value.trim();
-            var indice = _el.projetoIndice.value.trim();
-            var iniciais = _el.projetoIniciais.value.trim();
-            var banner = _el.bannerNovoProjeto;
+            var data = document.getElementById("projetoData").value.trim();
+            var indice = document.getElementById("projetoIndice").value.trim();
+            var iniciais = document.getElementById("projetoIniciais").value.trim();
+            var banner = document.getElementById("bannerNovoProjeto");
             if (!banner) return;
             var mudou = (data !== _originalProjetoData) || (indice !== _originalProjetoIndice) || (iniciais !== _originalProjetoIniciais);
             banner.style.display = mudou ? "block" : "none";
         }
 
-        // RF003: Comprimento mínimo de um código de projeto válido (YYMMDD + índice + iniciais = 6+1+2 = 9)
-        var _MIN_CODIGO_PROJETO = 9;
-
-        // RF003: Esconder aviso de duplicata e limpar destaque visual
-        function limparAvisoDuplicata() {
-            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "none";
-            if (_el.obsProjeto) _el.obsProjeto.style.border = "";
-        }
-
-        // RF003: Verificar em tempo real se o código de projeto já existe — com debounce de 600 ms
-        function verificarCodigoProjetoDuplicadoVisual(codigoProjeto) {
-            if (_verificarDuplicadoTimer) { clearTimeout(_verificarDuplicadoTimer); _verificarDuplicadoTimer = null; }
-
-            // Código muito curto → limpa aviso e para
-            if (!codigoProjeto || codigoProjeto.length < _MIN_CODIGO_PROJETO) {
-                limparAvisoDuplicata();
-                return;
-            }
-
-            // Mesmo código que foi carregado originalmente → não avisa (é a edição normal)
-            if (_originalProjetoData !== null &&
-                codigoProjeto === _originalProjetoData + _originalProjetoIndice + _originalProjetoIniciais) {
-                limparAvisoDuplicata();
-                return;
-            }
-
-            _verificarDuplicadoTimer = setTimeout(function () {
-                google.script.run
-                    .withSuccessHandler(function (result) {
-                        if (result && result.duplicado) {
-                            if (_el.bannerProjetoExistente) _el.bannerProjetoExistente.style.display = "block";
-                            if (_el.obsProjeto) _el.obsProjeto.style.border = "2px solid #e53935";
-                        } else {
-                            limparAvisoDuplicata();
-                        }
-                    })
-                    .withFailureHandler(function (err) {
-                        console.warn("Verificação visual de duplicata falhou:", err);
-                        limparAvisoDuplicata();
-                    })
-                    .verificarProjetoDuplicado(codigoProjeto);
-            }, 600);
-        }
-
         // RF006: Criar pasta 01_IN dentro da pasta do projeto
         function criarPasta01INAction() {
-            var btn = _el.btnCriarPasta01IN;
+            var btn = document.getElementById('btnCriarPasta01IN');
             var originalText = btn ? btn.textContent : "📁 Criar pasta 01_IN";
-            var data = _el.projetoData.value.trim();
-            var indice = _el.projetoIndice.value.trim();
-            var iniciais = _el.projetoIniciais.value.trim();
+            var data = document.getElementById("projetoData").value.trim();
+            var indice = document.getElementById("projetoIndice").value.trim();
+            var iniciais = document.getElementById("projetoIniciais").value.trim();
             var codigoProjeto = data + indice + iniciais;
-            var descricao = _el.obsDescricao.value.trim();
-            var nomeCliente = _el.clienteNome.value || "";
-            var nomeAbreviado = _el.clienteNomeAbreviado.value || "";
+            var descricao = document.getElementById("obsDescricao").value.trim();
+            var nomeCliente = document.getElementById("clienteNome").value || "";
+            var nomeAbreviado = document.getElementById("clienteNomeAbreviado").value || "";
 
             if (!data || !indice || !iniciais) {
                 alert("Preencha Data, Índice e Iniciais antes de criar a pasta.");
@@ -1628,7 +1514,7 @@
             }
             if (!descricao) {
                 alert("A Descrição do Projeto é obrigatória para criar a pasta.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
 
@@ -1649,11 +1535,11 @@
 
         // RF006: Abrir pasta 01_IN no Google Drive
         function abrirPasta01INAction() {
-            var btn = _el.btnAbrirPasta01IN;
+            var btn = document.getElementById('btnAbrirPasta01IN');
             var originalText = btn ? btn.textContent : "🔗 Abrir pasta 01_IN";
-            var data = _el.projetoData.value.trim();
-            var indice = _el.projetoIndice.value.trim();
-            var iniciais = _el.projetoIniciais.value.trim();
+            var data = document.getElementById("projetoData").value.trim();
+            var indice = document.getElementById("projetoIndice").value.trim();
+            var iniciais = document.getElementById("projetoIniciais").value.trim();
             var codigoProjeto = data + indice + iniciais;
 
             if (!data || !indice || !iniciais) {
@@ -1686,13 +1572,13 @@
             const originalDisabled = btn.disabled;
 
             // Validação
-            const data = _el.projetoData.value.trim();
-            const indice = _el.projetoIndice.value.trim();
-            const iniciais = _el.projetoIniciais.value.trim();
+            const data = document.getElementById("projetoData").value.trim();
+            const indice = document.getElementById("projetoIndice").value.trim();
+            const iniciais = document.getElementById("projetoIniciais").value.trim();
             const codigoProjeto = data + indice + iniciais;
-            const descricao = _el.obsDescricao.value.trim();
-            const nomeCliente = _el.clienteNome.value || "";
-            const nomeAbreviado = _el.clienteNomeAbreviado.value || "";
+            const descricao = document.getElementById("obsDescricao").value.trim();
+            const nomeCliente = document.getElementById("clienteNome").value || "";
+            const nomeAbreviado = document.getElementById("clienteNomeAbreviado").value || "";
 
             if (!data || !indice || !iniciais) {
                 alert("Preencha Data, Índice e Iniciais antes de criar a pasta do orçamento.");
@@ -1701,7 +1587,7 @@
 
             if (!descricao) {
                 alert("A Descrição do Projeto é obrigatória para criar a pasta do orçamento.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
 
@@ -1735,9 +1621,9 @@
             const originalDisabled = btn.disabled;
 
             // Validação
-            const data = _el.projetoData.value.trim();
-            const indice = _el.projetoIndice.value.trim();
-            const iniciais = _el.projetoIniciais.value.trim();
+            const data = document.getElementById("projetoData").value.trim();
+            const indice = document.getElementById("projetoIndice").value.trim();
+            const iniciais = document.getElementById("projetoIniciais").value.trim();
             const codigoProjeto = data + indice + iniciais;
 
             if (!data || !indice || !iniciais) {
@@ -1782,7 +1668,7 @@
         }
 
         function addProcessoPedido(appendAtEnd) {
-            const container = _el.processosPedidoContainer;
+            const container = document.getElementById("processosPedidoContainer");
             const div = document.createElement("div");
             div.className = "procPedido";
             div.style.border = "1px dashed #e0e6f0";
@@ -1861,25 +1747,25 @@
 
             // 1. Projeto
             formData.projeto = {
-                data: _el.projetoData.value,
-                indice: _el.projetoIndice.value,
-                iniciais: _el.projetoIniciais.value,
+                data: document.getElementById("projetoData").value,
+                indice: document.getElementById("projetoIndice").value,
+                iniciais: document.getElementById("projetoIniciais").value,
                 versao: "" // Versão será detectada automaticamente no backend
                 // Removido campo "pasta" - não é mais usado
             };
 
             // 2. Cliente
-            const clienteNomeVal = _el.clienteNome.value || "";
+            const clienteNomeVal = document.getElementById("clienteNome").value || "";
             formData.cliente = {
                 select: clienteNomeVal,
                 nome: clienteNomeVal,
-                nomeAbreviado: (_el.clienteNomeAbreviado.value || "").trim(),
-                cpf: _el.clienteCpf.value,
-                endereco: _el.clienteEndereco.value,
-                telefone: _el.clienteTelefone.value,
-                email: _el.clienteEmail.value,
-                responsavel: _el.clienteResponsavel.value,
-                data: _el.clienteData.value
+                nomeAbreviado: (document.getElementById("clienteNomeAbreviado").value || "").trim(),
+                cpf: document.getElementById("clienteCpf").value,
+                endereco: document.getElementById("clienteEndereco").value,
+                telefone: document.getElementById("clienteTelefone").value,
+                email: document.getElementById("clienteEmail").value,
+                responsavel: document.getElementById("clienteResponsavel").value,
+                data: document.getElementById("clienteData").value
             };
 
             // 3. (Memória de Cálculo removida - RF002)
@@ -1889,33 +1775,30 @@
             formData.processosPedido = [];
             document.querySelectorAll(".procPedido").forEach(procDiv => {
                 const tipo = (procDiv.querySelector(".procPedidoTipo") || {}).value || "custo";
-                const descontoTipoEl = procDiv.querySelector(".procPedidoDescontoTipo");
-                const descontoTipo = (descontoTipoEl || {}).value || "fixo";
-                const percentualInput = procDiv.querySelector(".procPedidoPercentual");
-                const valorFixoInput = procDiv.querySelector(".procPedidoValorFixo");
+                const descontoTipo = (procDiv.querySelector(".procPedidoDescontoTipo") || {}).value || "fixo";
                 formData.processosPedido.push({
                     tipo: tipo,
                     descricao: procDiv.querySelector(".procPedidoDescricao")?.value || "",
                     tipoValor: tipo === "desconto" ? descontoTipo : "fixo",
-                    percentual: percentualInput?.value ? String(percentualInput.value) : "",
-                    valorFixo: valorFixoInput?.value ? String(valorFixoInput.value) : ""
+                    percentual: procDiv.querySelector(".procPedidoPercentual")?.value ? String(procDiv.querySelector(".procPedidoPercentual").value) : "",
+                    valorFixo: procDiv.querySelector(".procPedidoValorFixo")?.value ? String(procDiv.querySelector(".procPedidoValorFixo").value) : ""
                 });
             });
 
             // 5. Informações do PDF e observações Kanban/Projetos
             formData.observacoes = {
-                prazoProposta: _el.obsPrazoProposta.value,
-                prazo: _el.obsPrazo.value,
-                vendedor: _el.obsVendedor.value,
-                materialCond: _el.obsMaterialCond.value,
-                transporte: _el.obsTransporte.value,
-                pagamento: _el.obsPagamento.value,
-                adicional: _el.obsAdicional.value,
-                observacoesKanban: _el.obsKanban.value,
-                projeto: _el.obsProjeto.value,
-                descricao: _el.obsDescricao.value,
-                processos: _el.obsProcessos.value,
-                temNotaFiscal: _el.obsTemNotaFiscal.checked
+                prazoProposta: document.getElementById("obsPrazoProposta").value,
+                prazo: document.getElementById("obsPrazo").value,
+                vendedor: document.getElementById("obsVendedor").value,
+                materialCond: document.getElementById("obsMaterialCond").value,
+                transporte: document.getElementById("obsTransporte").value,
+                pagamento: document.getElementById("obsPagamento").value,
+                adicional: document.getElementById("obsAdicional").value,
+                observacoesKanban: document.getElementById("obsKanban").value,
+                projeto: document.getElementById("obsProjeto").value,
+                descricao: document.getElementById("obsDescricao").value,
+                processos: document.getElementById("obsProcessos").value,
+                temNotaFiscal: document.getElementById("obsTemNotaFiscal").checked
             };
 
             // 6. Produtos Cadastrados
@@ -1966,10 +1849,9 @@
                     if (base.length > 7) projetoIniciais = base.substring(7);
                 }
             }
-            _el.projetoData.value = projetoData;
-            _el.projetoIndice.value = projetoIndice;
-            _el.projetoIniciais.value = projetoIniciais;
-            _indiceManualmenteAlterado = true; // índice veio de projeto carregado — preservar
+            document.getElementById("projetoData").value = projetoData;
+            document.getElementById("projetoIndice").value = projetoIndice;
+            document.getElementById("projetoIniciais").value = projetoIniciais;
             atualizarCamposProjeto(true);
 
             // RF001: Armazenar valores originais dos campos do projeto ao carregar
@@ -1979,42 +1861,42 @@
                 _originalProjetoIniciais = projetoIniciais;
             }
             // Ocultar banner (limpar estado anterior)
-            if (_el.bannerNovoProjeto) _el.bannerNovoProjeto.style.display = "none";
-            limparAvisoDuplicata();
+            var banner = document.getElementById("bannerNovoProjeto");
+            if (banner) banner.style.display = "none";
 
             // 2. Cliente (campo único: nome = busca ou novo)
-            _el.clienteNome.value = cliente.nome || "";
+            document.getElementById("clienteNome").value = cliente.nome || "";
             const clienteExistente = listaClientes.find(c => c.nome === (cliente.nome || "").trim());
             if (clienteExistente) {
                 preencherDadosCliente(clienteExistente);
-                _el.clienteNome.style.background = "#e8f5e9";
+                document.getElementById("clienteNome").style.background = "#e8f5e9";
             } else {
-                _el.clienteNome.style.background = "";
+                document.getElementById("clienteNome").style.background = "";
             }
-            _el.clienteNomeAbreviado.value = cliente.nomeAbreviado || (clienteExistente && clienteExistente.nomeAbreviado) || "";
-            _el.clienteCpf.value = cliente.cpf || "";
-            _el.clienteEndereco.value = cliente.endereco || "";
-            _el.clienteTelefone.value = cliente.telefone || "";
-            _el.clienteEmail.value = cliente.email || "";
-            _el.clienteResponsavel.value = cliente.responsavel || "";
-            _el.clienteData.value = cliente.data || "";
+            document.getElementById("clienteNomeAbreviado").value = cliente.nomeAbreviado || (clienteExistente && clienteExistente.nomeAbreviado) || "";
+            document.getElementById("clienteCpf").value = cliente.cpf || "";
+            document.getElementById("clienteEndereco").value = cliente.endereco || "";
+            document.getElementById("clienteTelefone").value = cliente.telefone || "";
+            document.getElementById("clienteEmail").value = cliente.email || "";
+            document.getElementById("clienteResponsavel").value = cliente.responsavel || "";
+            document.getElementById("clienteData").value = cliente.data || "";
 
             // 3. Informações do PDF e observações Kanban/Projetos
-            _el.obsPrazoProposta.value = observacoes.prazoProposta || "";
-            _el.obsPrazo.value = observacoes.prazo || "";
-            _el.obsVendedor.value = observacoes.vendedor || "";
-            _el.obsMaterialCond.value = observacoes.materialCond || "";
-            _el.obsTransporte.value = observacoes.transporte || "";
-            _el.obsPagamento.value = observacoes.pagamento || "";
-            _el.obsAdicional.value = observacoes.adicional || "";
-            _el.obsKanban.value = observacoes.observacoesKanban || "";
-            _el.obsProjeto.value = observacoes.projeto || "";
-            _el.obsDescricao.value = observacoes.descricao || "";
-            _el.obsProcessos.value = observacoes.processos || "";
-            _el.obsTemNotaFiscal.checked = !!observacoes.temNotaFiscal;
+            document.getElementById("obsPrazoProposta").value = observacoes.prazoProposta || "";
+            document.getElementById("obsPrazo").value = observacoes.prazo || "";
+            document.getElementById("obsVendedor").value = observacoes.vendedor || "";
+            document.getElementById("obsMaterialCond").value = observacoes.materialCond || "";
+            document.getElementById("obsTransporte").value = observacoes.transporte || "";
+            document.getElementById("obsPagamento").value = observacoes.pagamento || "";
+            document.getElementById("obsAdicional").value = observacoes.adicional || "";
+            document.getElementById("obsKanban").value = observacoes.observacoesKanban || "";
+            document.getElementById("obsProjeto").value = observacoes.projeto || "";
+            document.getElementById("obsDescricao").value = observacoes.descricao || "";
+            document.getElementById("obsProcessos").value = observacoes.processos || "";
+            document.getElementById("obsTemNotaFiscal").checked = !!observacoes.temNotaFiscal;
 
             // 4. (Memória de Cálculo removida - RF002) Limpar container de processos
-            _el.processosPedidoContainer.innerHTML = "";
+            document.getElementById("processosPedidoContainer").innerHTML = "";
 
             // 5. Processos do Pedido (nova estrutura: tipo, descricao, percentual/valorFixo; compatível com formato antigo)
             processosPedido.forEach(procData => {
@@ -2044,7 +1926,7 @@
             });
 
             // 6. Produtos Cadastrados (usa div retornado para preencher na ordem correta)
-            _el.produtosCadastradosContainer.innerHTML = "";
+            document.getElementById("produtosCadastradosContainer").innerHTML = "";
             if (data.produtosCadastrados && data.produtosCadastrados.length > 0) {
                 data.produtosCadastrados.forEach(prodData => {
                     const prodDiv = addProdutoCadastrado(true);
@@ -2111,8 +1993,8 @@
             if (!_isFillFromVersion) {
                 _dadosRootCarregado = safeData;
                 const versoes = Array.isArray(safeData.versoes) ? safeData.versoes : [];
-                const versaoPicker = _el.versaoPicker;
-                const versaoContainer = _el.versaoPickerContainer;
+                const versaoPicker = document.getElementById("versaoPicker");
+                const versaoContainer = document.getElementById("versaoPickerContainer");
                 if (versaoPicker && versaoContainer) {
                     if (versoes.length > 0) {
                         let opcoesHtml = '<option value="' + VERSAO_BASE_KEY + '">v1 - original</option>';
@@ -2145,7 +2027,7 @@
 
         // Carrega os dados de uma versão específica quando o usuário altera o seletor
         function carregarVersaoSelecionada() {
-            var versaoPicker = _el.versaoPicker;
+            var versaoPicker = document.getElementById("versaoPicker");
             if (!versaoPicker || !_dadosRootCarregado) return;
             var selectedCodigo = versaoPicker.value;
             var dadosParaCarregar;
@@ -2176,16 +2058,16 @@
                     var dadosValidos = dados || {};
                     linhaOrcamentoCarregado = key;
                     preencherFormulario(dadosValidos);
-                    var infoDiv = _el.orcamentoCarregadoInfo;
-                    var nomeSpan = _el.orcamentoCarregadoNome;
-                    var statusSpan = _el.orcamentoCarregadoStatus;
+                    var infoDiv = document.getElementById("orcamentoCarregadoInfo");
+                    var nomeSpan = document.getElementById("orcamentoCarregadoNome");
+                    var statusSpan = document.getElementById("orcamentoCarregadoStatus");
                     if (infoDiv && nomeSpan) {
                         nomeSpan.textContent = (dadosValidos.observacoes && dadosValidos.observacoes.projeto) ? dadosValidos.observacoes.projeto : "Orçamento carregado";
                         if (statusSpan) { statusSpan.textContent = "✅ Carregado pela lista de projetos"; statusSpan.style.background = "#e8f5e9"; statusSpan.style.color = "#2e7d32"; }
                         infoDiv.classList.remove("hidden");
                     }
-                    var buscaInput = _el.rascunhoBusca;
-                    var hiddenKey = _el.rascunhoSelectKey;
+                    var buscaInput = document.getElementById("rascunhoBusca");
+                    var hiddenKey = document.getElementById("rascunhoSelectKey");
                     if (buscaInput) buscaInput.value = (dadosValidos.observacoes && dadosValidos.observacoes.projeto) ? dadosValidos.observacoes.projeto : key;
                     if (hiddenKey) hiddenKey.value = key;
                 })
@@ -2211,7 +2093,7 @@
 
         // Atualiza o datalist com base no termo de busca
         function atualizarDatalistRascunhos(termo) {
-            const datalist = _el.rascunhosList;
+            const datalist = document.getElementById("rascunhosList");
             const termoLower = termo ? termo.toLowerCase().trim() : "";
 
             if (!termoLower) {
@@ -2234,7 +2116,7 @@
             ).join('');
 
             // Atualiza visualmente o campo de busca
-            const buscaInput = _el.rascunhoBusca;
+            const buscaInput = document.getElementById("rascunhoBusca");
             if (orcamentosFiltrados.length === 0) {
                 buscaInput.style.background = "#ffebee"; // Vermelho claro para indicar nenhum resultado
             } else if (orcamentosFiltrados.length === 1 && orcamentosFiltrados[0].nome.toLowerCase() === termoLower) {
@@ -2250,11 +2132,12 @@
             numeroSequencialCarregado = null;
             _dadosRootCarregado = null;
             _isFillFromVersion = false;
-            _el.rascunhoBusca.value = "";
-            _el.rascunhoBusca.style.background = "";
-            _el.rascunhoSelectKey.value = "";
-            _el.orcamentoCarregadoInfo.classList.add("hidden");
-            if (_el.versaoPickerContainer) _el.versaoPickerContainer.style.display = "none";
+            document.getElementById("rascunhoBusca").value = "";
+            document.getElementById("rascunhoBusca").style.background = "";
+            document.getElementById("rascunhoSelectKey").value = "";
+            document.getElementById("orcamentoCarregadoInfo").classList.add("hidden");
+            var versaoContainer = document.getElementById("versaoPickerContainer");
+            if (versaoContainer) versaoContainer.style.display = "none";
             atualizarDatalistRascunhos("");
         }
 
@@ -2267,17 +2150,17 @@
             const originalDisabled = btn.disabled;
 
             // Valida se tem código do projeto
-            const codigoProjeto = _el.obsProjeto.value.trim();
+            const codigoProjeto = document.getElementById("obsProjeto").value.trim();
             if (!codigoProjeto || codigoProjeto.length < 8) {
                 alert("Por favor, preencha os dados do projeto (Data, Índice, Iniciais) para gerar o código do projeto.");
                 return;
             }
 
             // Valida descrição obrigatória
-            const descricao = _el.obsDescricao.value.trim();
+            const descricao = document.getElementById("obsDescricao").value.trim();
             if (!descricao) {
                 alert("A Descrição do Projeto é obrigatória. Por favor, preencha o campo 'Descrição do Orçamento/Projeto'.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
             if (!validarDescricaoSemCOTPED(descricao)) return;
@@ -2334,40 +2217,38 @@
             _originalProjetoData = null;
             _originalProjetoIndice = null;
             _originalProjetoIniciais = null;
-            _indiceManualmenteAlterado = false; // permitir recálculo automático no novo formulário
-            var bannerReset = _el.bannerNovoProjeto;
+            var bannerReset = document.getElementById("bannerNovoProjeto");
             if (bannerReset) bannerReset.style.display = "none";
-            limparAvisoDuplicata();
 
             const today = new Date();
-            _el.projetoData.value = String(today.getFullYear()).slice(2) +
+            document.getElementById("projetoData").value = String(today.getFullYear()).slice(2) +
                 String(today.getMonth() + 1).padStart(2, '0') +
                 String(today.getDate()).padStart(2, '0');
-            _el.projetoIndice.value = "";
+            document.getElementById("projetoIndice").value = "";
             // Campo projetoPasta removido
 
-            _el.clienteNome.value = "";
-            _el.clienteNome.style.background = "";
-            _el.clienteNomeAbreviado.value = "";
-            _el.clienteCpf.value = "";
-            _el.clienteEndereco.value = "";
-            _el.clienteTelefone.value = "";
-            _el.clienteEmail.value = "";
-            _el.clienteResponsavel.value = "";
-            _el.clienteData.value = today.toISOString().slice(0, 10);
+            document.getElementById("clienteNome").value = "";
+            document.getElementById("clienteNome").style.background = "";
+            document.getElementById("clienteNomeAbreviado").value = "";
+            document.getElementById("clienteCpf").value = "";
+            document.getElementById("clienteEndereco").value = "";
+            document.getElementById("clienteTelefone").value = "";
+            document.getElementById("clienteEmail").value = "";
+            document.getElementById("clienteResponsavel").value = "";
+            document.getElementById("clienteData").value = today.toISOString().slice(0, 10);
 
-            _el.produtosCadastradosContainer.innerHTML = "";
-            _el.processosPedidoContainer.innerHTML = "";
+            document.getElementById("produtosCadastradosContainer").innerHTML = "";
+            document.getElementById("processosPedidoContainer").innerHTML = "";
 
-            _el.obsDescricao.value = "";
-            _el.obsPrazoProposta.value = "";
-            _el.obsPrazo.value = "";
-            _el.obsMaterialCond.value = "";
-            _el.obsTransporte.value = "";
-            _el.obsPagamento.value = "";
-            _el.obsAdicional.value = "";
-            _el.obsKanban.value = "";
-            _el.obsTemNotaFiscal.checked = false;
+            document.getElementById("obsDescricao").value = "";
+            document.getElementById("obsPrazoProposta").value = "";
+            document.getElementById("obsPrazo").value = "";
+            document.getElementById("obsMaterialCond").value = "";
+            document.getElementById("obsTransporte").value = "";
+            document.getElementById("obsPagamento").value = "";
+            document.getElementById("obsAdicional").value = "";
+            document.getElementById("obsKanban").value = "";
+            document.getElementById("obsTemNotaFiscal").checked = false;
 
             if (typeof atualizarCamposProjeto === 'function') {
                 atualizarCamposProjeto();
@@ -2387,8 +2268,8 @@
 
         // Função de carregar orçamento (rascunho ou enviado) - chama o Apps Script
         function carregarRascunhoSelecionado() {
-            const buscaInput = _el.rascunhoBusca;
-            const hiddenKey = _el.rascunhoSelectKey;
+            const buscaInput = document.getElementById("rascunhoBusca");
+            const hiddenKey = document.getElementById("rascunhoSelectKey");
             const valorBusca = buscaInput.value.trim();
 
             // Tenta encontrar a chave do orçamento selecionado
@@ -2412,7 +2293,7 @@
                 return;
             }
 
-            const btn = _el.btnCarregarRascunho;
+            const btn = document.getElementById("btnCarregarRascunho");
             const originalText = btn ? btn.textContent : "";
             const originalDisabled = btn ? btn.disabled : false;
 
@@ -2435,9 +2316,9 @@
                     preencherFormulario(dadosValidos);
 
                     // Mostra informações do orçamento carregado
-                    const infoDiv = _el.orcamentoCarregadoInfo;
-                    const nomeSpan = _el.orcamentoCarregadoNome;
-                    const statusSpan = _el.orcamentoCarregadoStatus;
+                    const infoDiv = document.getElementById("orcamentoCarregadoInfo");
+                    const nomeSpan = document.getElementById("orcamentoCarregadoNome");
+                    const statusSpan = document.getElementById("orcamentoCarregadoStatus");
 
                     if (orcamentoSelecionado) {
                         nomeSpan.textContent = orcamentoSelecionado.nome || "Orçamento carregado";
@@ -2474,7 +2355,7 @@
                     }
                     alert("Erro ao carregar orçamento:\n" + err.message);
                     linhaOrcamentoCarregado = null;
-                    _el.orcamentoCarregadoInfo.classList.add("hidden");
+                    document.getElementById("orcamentoCarregadoInfo").classList.add("hidden");
                 })
                 .carregarRascunho(key);
         }
@@ -2493,7 +2374,7 @@
             }
             if (!dados.observacoes || !dados.observacoes.descricao || dados.observacoes.descricao.trim() === "") {
                 alert("A Descrição do Projeto é obrigatória. Por favor, preencha o campo 'Descrição do Orçamento/Projeto'.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
             if (!validarDescricaoSemCOTPED(dados.observacoes.descricao)) return;
@@ -2515,13 +2396,13 @@
                 if (!confirm("Salvar este projeto como PEDIDO?\n\nSerá gerada a proposta comercial em PDF e o projeto será registrado já como \"Convertido em Pedido\".")) return;
             }
             // Usa a mesma lógica de calcular(), gerando o PDF com status "convertido em pedido"
-            calcularComVerificacao(true);
+            calcular(true);
         }
 
         // Função de deletar rascunho (chama o Apps Script)
         function deletarRascunhoSelecionado() {
-            const buscaInput = _el.rascunhoBusca;
-            const hiddenKey = _el.rascunhoSelectKey;
+            const buscaInput = document.getElementById("rascunhoBusca");
+            const hiddenKey = document.getElementById("rascunhoSelectKey");
             const valorBusca = buscaInput.value.trim();
 
             // Tenta encontrar a chave do orçamento selecionado
@@ -2581,43 +2462,10 @@
             return `${dia}/${mes}/${ano}`;
         }
 
-        // RF003: Validar projeto duplicado antes de gerar/salvar (apenas para projetos novos, não carregados pelo formulário de busca)
-        function calcularComVerificacao(asPedido) {
-            asPedido = !!asPedido;
-            // Se o projeto foi carregado pelo formulário de busca (_originalProjetoData !== null),
-            // o usuário obviamente quer editar — não mostrar alerta de duplicata.
-            if (_originalProjetoData !== null) {
-                calcular(asPedido, false);
-                return;
-            }
-            const data = _el.projetoData.value.trim();
-            const indice = _el.projetoIndice.value.trim();
-            const iniciais = _el.projetoIniciais.value.trim();
-            if (!data || !indice || !iniciais) {
-                // Deixa calcular() lidar com a validação de campos obrigatórios
-                calcular(asPedido, false);
-                return;
-            }
-            const codigoProjeto = data + indice + iniciais;
-            google.script.run
-                .withSuccessHandler(function (result) {
-                    if (result && result.duplicado) {
-                        if (!confirm("⚠️ Este código de projeto já existe (" + codigoProjeto + ").\nDeseja sobrescrever?")) return;
-                    }
-                    calcular(asPedido, false);
-                })
-                .withFailureHandler(function (err) {
-                    // Se a verificação falhar, prosseguir sem bloquear o usuário
-                    console.warn("Verificação de projeto duplicado falhou; prosseguindo.", err);
-                    calcular(asPedido, false);
-                })
-                .verificarProjetoDuplicado(codigoProjeto);
-        }
-
         function calcular(asPedido, apenasPreview) {
             asPedido = !!asPedido;
             apenasPreview = !!apenasPreview;
-            const btn = apenasPreview ? _el.btnPreviewPdf : (asPedido ? document.querySelector('button[onclick="salvarComoPedido()"]') : _el.btnGerar);
+            const btn = apenasPreview ? document.getElementById("btnPreviewPdf") : (asPedido ? document.querySelector('button[onclick="salvarComoPedido()"]') : document.getElementById("btnGerar"));
             if (!btn) return;
             const textoOriginalBtn = apenasPreview ? "Ver Prévia do PDF" : (asPedido ? "Converter em Pedido" : "Finalizar e Gerar PDF");
             btn.disabled = true;
@@ -2689,24 +2537,24 @@
             }
 
             // Modo: nova versão (_v2, _v3) ou sobrescrever a atual
-            const modoVersaoNova = _el.modoVersaoPdfNova;
+            const modoVersaoNova = document.getElementById("modoVersaoPdfNova");
             const sobrescreverVersao = !(modoVersaoNova && modoVersaoNova.checked);
             // Versão atual (para sobrescrever): do obsProjeto se carregamos um orçamento com _v2
-            const obsProjetoVal = _el.obsProjeto.value.trim();
+            const obsProjetoVal = document.getElementById("obsProjeto").value.trim();
             const versaoAtual = obsProjetoVal.match(/_v(\d+)$/) ? "_v" + obsProjetoVal.match(/_v(\d+)$/)[1] : "";
 
             // Validação: Descrição obrigatória
             const descricao = dadosColetados.observacoes.descricao || "";
             if (!descricao || descricao.trim() === "") {
                 alert("A Descrição do Projeto é obrigatória. Por favor, preencha o campo 'Descrição do Orçamento/Projeto'.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 btn.disabled = false;
                 btn.textContent = textoOriginalBtn;
                 return;
             }
             if (descricaoContemCOTouPED(descricao)) {
                 alert("A descrição do projeto não pode conter as palavras COT ou PED (são reservadas pelo sistema para nomear pastas).");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 btn.disabled = false;
                 btn.textContent = textoOriginalBtn;
                 return;
@@ -2714,9 +2562,9 @@
 
             // RF001: Failsafe - verificar se está criando novo projeto ou sobrescrevendo existente
             if (!apenasPreview && _originalProjetoData !== null) {
-                var projetoDataAtual = _el.projetoData.value.trim();
-                var projetoIndiceAtual = _el.projetoIndice.value.trim();
-                var projetoIniciaisAtual = _el.projetoIniciais.value.trim();
+                var projetoDataAtual = document.getElementById("projetoData").value.trim();
+                var projetoIndiceAtual = document.getElementById("projetoIndice").value.trim();
+                var projetoIniciaisAtual = document.getElementById("projetoIniciais").value.trim();
                 var codigoAtual = projetoDataAtual + projetoIndiceAtual + projetoIniciaisAtual;
                 var mudouIdentificador = (projetoDataAtual !== _originalProjetoData) || (projetoIndiceAtual !== _originalProjetoIndice) || (projetoIniciaisAtual !== _originalProjetoIniciais);
                 if (mudouIdentificador) {
@@ -2858,9 +2706,9 @@
 
         function inicializarBuscaOrcamentos() {
             // Event listeners para o campo de busca de orçamentos
-            const rascunhoBuscaInput = _el.rascunhoBusca;
-            const rascunhosDatalist = _el.rascunhosList;
-            const rascunhoSelectKey = _el.rascunhoSelectKey;
+            const rascunhoBuscaInput = document.getElementById("rascunhoBusca");
+            const rascunhosDatalist = document.getElementById("rascunhosList");
+            const rascunhoSelectKey = document.getElementById("rascunhoSelectKey");
 
             if (!rascunhoBuscaInput || !rascunhosDatalist || !rascunhoSelectKey) {
                 console.error("Elementos de busca de orçamentos não encontrados");
@@ -2975,16 +2823,13 @@
             const processos = [];
             document.querySelectorAll(".procPedido").forEach(procDiv => {
                 const tipo = (procDiv.querySelector(".procPedidoTipo") || {}).value || "custo";
-                const descontoTipoEl = procDiv.querySelector(".procPedidoDescontoTipo");
-                const descontoTipo = (descontoTipoEl || {}).value || "fixo";
-                const percentualInput = procDiv.querySelector(".procPedidoPercentual");
-                const valorFixoInput = procDiv.querySelector(".procPedidoValorFixo");
+                const descontoTipo = (procDiv.querySelector(".procPedidoDescontoTipo") || {}).value || "fixo";
                 processos.push({
                     tipo: tipo,
                     descricao: procDiv.querySelector(".procPedidoDescricao")?.value || "",
                     tipoValor: tipo === "desconto" ? descontoTipo : "fixo",
-                    percentual: percentualInput?.value ? String(percentualInput.value) : "",
-                    valorFixo: valorFixoInput?.value ? String(valorFixoInput.value) : ""
+                    percentual: procDiv.querySelector(".procPedidoPercentual")?.value ? String(procDiv.querySelector(".procPedidoPercentual").value) : "",
+                    valorFixo: procDiv.querySelector(".procPedidoValorFixo")?.value ? String(procDiv.querySelector(".procPedidoValorFixo").value) : ""
                 });
             });
             return processos;
@@ -3009,33 +2854,33 @@
                 const temDados = dados.produtosCadastrados.length > 0 || dados.processosPedido.length > 0;
 
                 if (!temDados) {
-                    _el.previewStatus.textContent = "Preencha os dados para ver o preview";
-                    _el.previewTotal.textContent = "R$ 0,00";
-                    _el.previewDetalhamento.innerHTML = "";
+                    document.getElementById("previewStatus").textContent = "Preencha os dados para ver o preview";
+                    document.getElementById("previewTotal").textContent = "R$ 0,00";
+                    document.getElementById("previewDetalhamento").innerHTML = "";
                     return;
                 }
 
                 // Mostra loading
-                _el.previewLoading.classList.remove("hidden");
-                _el.previewStatus.textContent = "Calculando...";
+                document.getElementById("previewLoading").classList.remove("hidden");
+                document.getElementById("previewStatus").textContent = "Calculando...";
 
                 // Chama o servidor para calcular
                 google.script.run
                     .withSuccessHandler(function (resultado) {
                         // Esconde loading
-                        _el.previewLoading.classList.add("hidden");
+                        document.getElementById("previewLoading").classList.add("hidden");
 
                         if (resultado.erro) {
-                            _el.previewStatus.textContent = "Erro ao calcular: " + resultado.erro;
+                            document.getElementById("previewStatus").textContent = "Erro ao calcular: " + resultado.erro;
                             return;
                         }
 
                         // Atualiza status
                         const agora = new Date();
-                        _el.previewStatus.textContent = "Atualizado às " + agora.toLocaleTimeString('pt-BR');
+                        document.getElementById("previewStatus").textContent = "Atualizado às " + agora.toLocaleTimeString('pt-BR');
 
                         // Atualiza total
-                        _el.previewTotal.textContent = formatarReais(resultado.total);
+                        document.getElementById("previewTotal").textContent = formatarReais(resultado.total);
 
                         // Atualiza detalhamento
                         let detalhamentoHtml = "";
@@ -3060,18 +2905,18 @@
                             detalhamentoHtml += '</div>';
                         }
 
-                        _el.previewDetalhamento.innerHTML = detalhamentoHtml;
+                        document.getElementById("previewDetalhamento").innerHTML = detalhamentoHtml;
                     })
                     .withFailureHandler(function (erro) {
-                        _el.previewLoading.classList.add("hidden");
-                        _el.previewStatus.textContent = "Erro ao calcular preview";
+                        document.getElementById("previewLoading").classList.add("hidden");
+                        document.getElementById("previewStatus").textContent = "Erro ao calcular preview";
                         console.error("Erro ao calcular preview:", erro);
                     })
                     .calcularPreviewOrcamento(dados);
 
             } catch (erro) {
                 console.error("Erro ao atualizar preview:", erro);
-                _el.previewStatus.textContent = "Erro ao processar dados";
+                document.getElementById("previewStatus").textContent = "Erro ao processar dados";
             }
         }
 
@@ -3093,7 +2938,7 @@
             atualizarPreviewDebounced();
         });
 
-        const produtosContainer = _el.produtosCadastradosContainer;
+        const produtosContainer = document.getElementById("produtosCadastradosContainer");
         if (produtosContainer) {
             produtosObserver.observe(produtosContainer, observerConfig);
         }
@@ -3103,7 +2948,7 @@
             atualizarPreviewDebounced();
         });
 
-        const processosContainer = _el.processosPedidoContainer;
+        const processosContainer = document.getElementById("processosPedidoContainer");
         if (processosContainer) {
             processosObserver.observe(processosContainer, observerConfig);
         }
@@ -3157,16 +3002,16 @@
 
         // Um botão só: se tem arquivos carregados → cria a pasta e envia; se não tem → apenas cria a pasta.
         function EnviarArquivos() {
-            const inputArquivos = _el.arquivosCliente;
-            const statusEl = _el.arquivosStatus;
-            const btnSubmit = _el.btnEnviarArquivos;
+            const inputArquivos = document.getElementById("arquivosCliente");
+            const statusEl = document.getElementById("arquivosStatus");
+            const btnSubmit = document.getElementById("btnEnviarArquivos");
 
-            const data = _el.projetoData.value.trim();
-            const indice = _el.projetoIndice.value.trim();
-            const iniciais = _el.projetoIniciais.value.trim();
+            const data = document.getElementById("projetoData").value.trim();
+            const indice = document.getElementById("projetoIndice").value.trim();
+            const iniciais = document.getElementById("projetoIniciais").value.trim();
             const codigoProjeto = data + indice + iniciais;
-            const descricao = _el.obsDescricao.value.trim();
-            const nomeCliente = _el.clienteNome.value || "";
+            const descricao = document.getElementById("obsDescricao").value.trim();
+            const nomeCliente = document.getElementById("clienteNome").value || "";
             const temArquivos = inputArquivos && inputArquivos.files && inputArquivos.files.length > 0;
 
             if (!data || !indice || !iniciais) {
@@ -3175,18 +3020,18 @@
             }
             if (!descricao) {
                 alert("A Descrição do Projeto é obrigatória.");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
             if (descricaoContemCOTouPED(descricao)) {
                 alert("A descrição do projeto não pode conter as palavras COT ou PED (são reservadas pelo sistema para nomear pastas).");
-                _el.obsDescricao.focus();
+                document.getElementById("obsDescricao").focus();
                 return;
             }
 
-            _el.hiddenCodigoProjeto.value = codigoProjeto;
-            _el.hiddenNomePasta.value = descricao;
-            _el.hiddenDataProjeto.value = data;
+            document.getElementById("hiddenCodigoProjeto").value = codigoProjeto;
+            document.getElementById("hiddenNomePasta").value = descricao;
+            document.getElementById("hiddenDataProjeto").value = data;
 
             const originalText = btnSubmit ? btnSubmit.textContent : "";
             const originalDisabled = btnSubmit ? btnSubmit.disabled : false;
@@ -3228,9 +3073,9 @@
 
         // Envia os arquivos já selecionados para a pasta 01_IN (a pasta já deve ter sido criada).
         function enviarArquivosParaPasta(codigoProjeto, descricao, data, originalBtnText, originalBtnDisabled) {
-            const inputArquivos = _el.arquivosCliente;
-            const statusEl = _el.arquivosStatus;
-            const btnSubmit = _el.btnEnviarArquivos;
+            const inputArquivos = document.getElementById("arquivosCliente");
+            const statusEl = document.getElementById("arquivosStatus");
+            const btnSubmit = document.getElementById("btnEnviarArquivos");
 
             const files = inputArquivos.files;
             const total = files.length;
