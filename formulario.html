@@ -1444,6 +1444,7 @@
             if (preserveIndice === true) {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 document.getElementById("obsProjeto").value = codigoProjeto;
+                verificarCodigoDuplicado(codigoProjeto);
                 return;
             }
 
@@ -1505,6 +1506,17 @@
             banner.style.display = mudou ? "block" : "none";
         }
 
+        // Retorna true se o código de projeto (sem sufixo _v2) já existe em listaOrcamentosCompleta.
+        // Os itens da lista têm formato "CÓDIGO - data - cliente - descrição" no campo "nome".
+        function codigoProjetoJaExiste(codigo) {
+            if (!codigo || codigo.length < 8) return false;
+            var base = codigo.replace(/_v\d+$/, "").toLowerCase();
+            return listaOrcamentosCompleta.some(function(r) {
+                var nomeBase = String(r.nome || "").split(" - ")[0].trim().replace(/_v\d+$/, "").toLowerCase();
+                return nomeBase === base;
+            });
+        }
+
         // Verifica se o código do projeto atual já existe na lista de orçamentos (duplicidade)
         // Só é exibido quando o usuário NÃO carregou um projeto existente (criando um novo)
         function verificarCodigoDuplicado(codigoAtual) {
@@ -1516,18 +1528,7 @@
                 return;
             }
             if (!codigoAtual) codigoAtual = document.getElementById("obsProjeto").value.trim();
-            if (!codigoAtual || codigoAtual.length < 8) {
-                bannerDup.style.display = "none";
-                return;
-            }
-            // Compara a base do código (sem sufixo _v2, _v3 etc.)
-            var base = codigoAtual.replace(/_v\d+$/, "").toLowerCase();
-            // O campo "nome" em listaOrcamentosCompleta tem formato "CÓDIGO - data - cliente - descrição"
-            var existe = listaOrcamentosCompleta.some(function(r) {
-                var nomeBase = String(r.nome || "").split(" - ")[0].trim().replace(/_v\d+$/, "").toLowerCase();
-                return nomeBase === base;
-            });
-            bannerDup.style.display = existe ? "block" : "none";
+            bannerDup.style.display = codigoProjetoJaExiste(codigoAtual) ? "block" : "none";
         }
 
         // RF006: Criar pasta 01_IN dentro da pasta do projeto
@@ -2223,9 +2224,9 @@
                     })
                     .atualizarRascunho(linhaOrcamentoCarregado, dados);
             } else {
-                // Se não tem orçamento carregado, verifica se o código já existe antes de salvar
-                var bannerDupSave = document.getElementById("bannerProjetoDuplicado");
-                if (bannerDupSave && bannerDupSave.style.display !== "none") {
+                // Se não tem orçamento carregado, verifica se o código já existe antes de salvar.
+                // Faz a checagem diretamente na lista (não depende do estado visual do banner).
+                if (codigoProjetoJaExiste(codigoProjeto)) {
                     if (!confirm("⚠️ Já existe um projeto com o código \"" + codigoProjeto + "\".\n\nDeseja sobrescrever o projeto existente?")) {
                         btn.disabled = originalDisabled;
                         return;
@@ -2629,10 +2630,10 @@
                 }
             }
 
-            // Verificar duplicidade: se NÃO está editando projeto carregado e o código já existe, pedir confirmação
+            // Verificar duplicidade: se NÃO está editando projeto carregado e o código já existe, pedir confirmação.
+            // Faz a checagem diretamente na lista (não depende do estado visual do banner, que pode estar desatualizado).
             if (!apenasPreview && !linhaOrcamentoCarregado) {
-                var bannerDupCalc = document.getElementById("bannerProjetoDuplicado");
-                if (bannerDupCalc && bannerDupCalc.style.display !== "none") {
+                if (codigoProjetoJaExiste(codigoProjetoCompleto)) {
                     if (!confirm("⚠️ Já existe um projeto com o código \"" + codigoProjetoCompleto + "\".\n\nDeseja sobrescrever o projeto existente?")) {
                         btn.disabled = false;
                         btn.textContent = textoOriginalBtn;
