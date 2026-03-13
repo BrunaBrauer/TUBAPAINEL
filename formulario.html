@@ -442,6 +442,11 @@
                     ⚠️ <strong>Você está criando um NOVO projeto.</strong> O projeto original será mantido.
                 </div>
 
+                <div id="bannerProjetoDuplicado"
+                    style="display:none; background:#f8d7da; border:1px solid #f5c2c7; border-radius:6px; padding:10px 14px; margin-bottom:10px; color:#842029;">
+                    ⚠️ <strong>Já existe um projeto com este código.</strong> Se salvar, o projeto existente será sobrescrito.
+                </div>
+
                 <div class="row">
                     <div class="col">
                         <label>Data (ANO + MES + DIA):</label>
@@ -1446,6 +1451,7 @@
             if (indiceAtual !== "" && indiceAtual.toLowerCase() !== "a") {
                 const codigoProjeto = data + indiceAtual + iniciais;
                 document.getElementById("obsProjeto").value = codigoProjeto;
+                verificarCodigoDuplicado(codigoProjeto);
                 return;
             }
 
@@ -1458,6 +1464,7 @@
                         const iniciaisAtual = document.getElementById("projetoIniciais").value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         document.getElementById("obsProjeto").value = codigoProjeto;
+                        verificarCodigoDuplicado(codigoProjeto);
                     })
                     .withFailureHandler(function (err) {
                         document.getElementById("projetoIndice").value = "a";
@@ -1465,12 +1472,14 @@
                         const iniciaisAtual = document.getElementById("projetoIniciais").value.trim();
                         const codigoProjeto = data + indice + iniciaisAtual;
                         document.getElementById("obsProjeto").value = codigoProjeto;
+                        verificarCodigoDuplicado(codigoProjeto);
                     })
                     .detectarProximoIndice(data, iniciais);
             } else {
                 const indice = document.getElementById("projetoIndice").value || "a";
                 const codigoProjeto = data + indice + iniciais;
                 document.getElementById("obsProjeto").value = codigoProjeto;
+                verificarCodigoDuplicado(codigoProjeto);
             }
         }
 
@@ -1494,6 +1503,31 @@
             if (!banner) return;
             var mudou = (data !== _originalProjetoData) || (indice !== _originalProjetoIndice) || (iniciais !== _originalProjetoIniciais);
             banner.style.display = mudou ? "block" : "none";
+        }
+
+        // Verifica se o código do projeto atual já existe na lista de orçamentos (duplicidade)
+        // Só é exibido quando o usuário NÃO carregou um projeto existente (criando um novo)
+        function verificarCodigoDuplicado(codigoAtual) {
+            var bannerDup = document.getElementById("bannerProjetoDuplicado");
+            if (!bannerDup) return;
+            // Se estamos editando um projeto carregado, não exibe o banner de duplicado
+            if (linhaOrcamentoCarregado) {
+                bannerDup.style.display = "none";
+                return;
+            }
+            if (!codigoAtual) codigoAtual = document.getElementById("obsProjeto").value.trim();
+            if (!codigoAtual || codigoAtual.length < 8) {
+                bannerDup.style.display = "none";
+                return;
+            }
+            // Compara a base do código (sem sufixo _v2, _v3 etc.)
+            var base = codigoAtual.replace(/_v\d+$/, "").toLowerCase();
+            // O campo "nome" em listaOrcamentosCompleta tem formato "CÓDIGO - data - cliente - descrição"
+            var existe = listaOrcamentosCompleta.some(function(r) {
+                var nomeBase = String(r.nome || "").split(" - ")[0].trim().replace(/_v\d+$/, "").toLowerCase();
+                return nomeBase === base;
+            });
+            bannerDup.style.display = existe ? "block" : "none";
         }
 
         // RF006: Criar pasta 01_IN dentro da pasta do projeto
@@ -1842,7 +1876,7 @@
                 if (base.length >= 9) {
                     projetoData = base.substring(0, 6);
                     projetoIndice = base.substring(6, 7);
-                    projetoIniciais = base.substring(7, 9);
+                    projetoIniciais = base.substring(7);
                 } else if (base.length >= 6 && !projetoData) {
                     projetoData = base.substring(0, 6);
                     if (base.length > 6) projetoIndice = base.charAt(6);
@@ -1860,9 +1894,11 @@
                 _originalProjetoIndice = projetoIndice;
                 _originalProjetoIniciais = projetoIniciais;
             }
-            // Ocultar banner (limpar estado anterior)
+            // Ocultar banners (limpar estado anterior)
             var banner = document.getElementById("bannerNovoProjeto");
             if (banner) banner.style.display = "none";
+            var bannerDup = document.getElementById("bannerProjetoDuplicado");
+            if (bannerDup) bannerDup.style.display = "none";
 
             // 2. Cliente (campo único: nome = busca ou novo)
             document.getElementById("clienteNome").value = cliente.nome || "";
@@ -1890,7 +1926,7 @@
             document.getElementById("obsPagamento").value = observacoes.pagamento || "";
             document.getElementById("obsAdicional").value = observacoes.adicional || "";
             document.getElementById("obsKanban").value = observacoes.observacoesKanban || "";
-            document.getElementById("obsProjeto").value = observacoes.projeto || "";
+            document.getElementById("obsProjeto").value = observacoes.projeto || document.getElementById("obsProjeto").value;
             document.getElementById("obsDescricao").value = observacoes.descricao || "";
             document.getElementById("obsProcessos").value = observacoes.processos || "";
             document.getElementById("obsTemNotaFiscal").checked = !!observacoes.temNotaFiscal;
@@ -2186,6 +2222,14 @@
                     })
                     .atualizarRascunho(linhaOrcamentoCarregado, dados);
             } else {
+                // Se não tem orçamento carregado, verifica se o código já existe antes de salvar
+                var bannerDupSave = document.getElementById("bannerProjetoDuplicado");
+                if (bannerDupSave && bannerDupSave.style.display !== "none") {
+                    if (!confirm("⚠️ Já existe um projeto com o código \"" + codigoProjeto + "\".\n\nDeseja sobrescrever o projeto existente?")) {
+                        btn.disabled = originalDisabled;
+                        return;
+                    }
+                }
                 // Se não tem orçamento carregado, salva como novo rascunho
                 btn.textContent = "Salvando...";
 
@@ -2219,6 +2263,8 @@
             _originalProjetoIniciais = null;
             var bannerReset = document.getElementById("bannerNovoProjeto");
             if (bannerReset) bannerReset.style.display = "none";
+            var bannerDupReset = document.getElementById("bannerProjetoDuplicado");
+            if (bannerDupReset) bannerDupReset.style.display = "none";
 
             const today = new Date();
             document.getElementById("projetoData").value = String(today.getFullYear()).slice(2) +
@@ -2582,6 +2628,18 @@
                 }
             }
 
+            // Verificar duplicidade: se NÃO está editando projeto carregado e o código já existe, pedir confirmação
+            if (!apenasPreview && !linhaOrcamentoCarregado) {
+                var bannerDupCalc = document.getElementById("bannerProjetoDuplicado");
+                if (bannerDupCalc && bannerDupCalc.style.display !== "none") {
+                    if (!confirm("⚠️ Já existe um projeto com o código \"" + codigoProjetoCompleto + "\".\n\nDeseja sobrescrever o projeto existente?")) {
+                        btn.disabled = false;
+                        btn.textContent = textoOriginalBtn;
+                        return;
+                    }
+                }
+            }
+
             const observacoes = {
                 projeto: codigoProjetoCompleto,
                 descricao: dadosColetados.observacoes.descricao,
@@ -2860,59 +2918,86 @@
                     return;
                 }
 
-                // Mostra loading
-                document.getElementById("previewLoading").classList.remove("hidden");
-                document.getElementById("previewStatus").textContent = "Calculando...";
+                // Calcula preview localmente (evita limite de transferência do google.script.run)
+                let totalGeral = 0;
+                const detalhamento = [];
 
-                // Chama o servidor para calcular
-                google.script.run
-                    .withSuccessHandler(function (resultado) {
-                        // Esconde loading
-                        document.getElementById("previewLoading").classList.add("hidden");
+                // Produtos cadastrados
+                dados.produtosCadastrados.forEach(function(prod) {
+                    const precoTotal = (parseFloat(prod.precoUnitario) || 0) * (parseFloat(prod.quantidade) || 0);
+                    totalGeral += precoTotal;
+                    detalhamento.push({
+                        tipo: 'produto',
+                        descricao: prod.descricao || prod.codigo,
+                        quantidade: prod.quantidade,
+                        precoUnitario: prod.precoUnitario,
+                        precoTotal: precoTotal
+                    });
+                });
 
-                        if (resultado.erro) {
-                            document.getElementById("previewStatus").textContent = "Erro ao calcular: " + resultado.erro;
-                            return;
-                        }
-
-                        // Atualiza status
-                        const agora = new Date();
-                        document.getElementById("previewStatus").textContent = "Atualizado às " + agora.toLocaleTimeString('pt-BR');
-
-                        // Atualiza total
-                        document.getElementById("previewTotal").textContent = formatarReais(resultado.total);
-
-                        // Atualiza detalhamento
-                        let detalhamentoHtml = "";
-
-                        // Agrupa por tipo (apenas produtos e processos do pedido)
-                        const produtos = resultado.detalhamento.filter(d => d.tipo === 'produto');
-                        const processos = resultado.detalhamento.filter(d => d.tipo === 'processo');
-
-                        if (produtos.length > 0) {
-                            detalhamentoHtml += '<div style="margin-bottom:12px;"><strong>📦 Produtos Cadastrados:</strong><br>';
-                            produtos.forEach(p => {
-                                detalhamentoHtml += `&nbsp;&nbsp;• ${p.descricao} (${p.quantidade}x) - ${formatarReais(p.precoTotal)}<br>`;
+                // Processos do pedido (descontos e custos extras)
+                if (dados.processosPedido && Array.isArray(dados.processosPedido)) {
+                    const subtotalAntesProcessos = totalGeral;
+                    dados.processosPedido.forEach(function(proc) {
+                        let preco = 0;
+                        if (proc.tipo === "desconto" || proc.tipo === "custo") {
+                            const tipoValor = proc.tipoValor === "percentual" || proc.tipoValor === "fixo" ? proc.tipoValor : "fixo";
+                            if (proc.tipo === "desconto") {
+                                preco = tipoValor === "percentual"
+                                    ? -(subtotalAntesProcessos * (parseFloat(proc.percentual) || 0) / 100)
+                                    : -(parseFloat(proc.valorFixo) || 0);
+                            } else {
+                                preco = parseFloat(proc.valorFixo) || 0;
+                            }
+                            detalhamento.push({
+                                tipo: 'processo',
+                                descricao: proc.descricao || (proc.tipo === "desconto" ? "Desconto" : "Custo extra"),
+                                precoTotal: preco
                             });
-                            detalhamentoHtml += '</div>';
-                        }
-
-                        if (processos.length > 0) {
-                            detalhamentoHtml += '<div style="margin-bottom:12px;"><strong>⚙️ Processos Adicionais:</strong><br>';
-                            processos.forEach(p => {
-                                detalhamentoHtml += `&nbsp;&nbsp;• ${p.descricao} - ${formatarReais(p.precoTotal)}<br>`;
+                        } else {
+                            const vh = parseFloat(proc.valorHora) || 0, h = parseFloat(proc.horas) || 0;
+                            const vm = parseFloat(proc.valorMat) || 0, qm = parseFloat(proc.qtdMat) || 0, vf = parseFloat(proc.valorFixo) || 0;
+                            preco = vh * h + vm * qm + vf;
+                            detalhamento.push({
+                                tipo: 'processo',
+                                descricao: proc.descricao || 'Processo adicional',
+                                precoTotal: preco
                             });
-                            detalhamentoHtml += '</div>';
                         }
+                        totalGeral += preco;
+                    });
+                }
 
-                        document.getElementById("previewDetalhamento").innerHTML = detalhamentoHtml;
-                    })
-                    .withFailureHandler(function (erro) {
-                        document.getElementById("previewLoading").classList.add("hidden");
-                        document.getElementById("previewStatus").textContent = "Erro ao calcular preview";
-                        console.error("Erro ao calcular preview:", erro);
-                    })
-                    .calcularPreviewOrcamento(dados);
+                // Atualiza status
+                const agora = new Date();
+                document.getElementById("previewStatus").textContent = "Atualizado às " + agora.toLocaleTimeString('pt-BR');
+
+                // Atualiza total
+                document.getElementById("previewTotal").textContent = formatarReais(totalGeral);
+
+                // Atualiza detalhamento (sem limite de itens)
+                let detalhamentoHtml = "";
+
+                const produtos = detalhamento.filter(d => d.tipo === 'produto');
+                const processos = detalhamento.filter(d => d.tipo === 'processo');
+
+                if (produtos.length > 0) {
+                    detalhamentoHtml += '<div style="margin-bottom:12px;"><strong>📦 Produtos Cadastrados:</strong><br>';
+                    produtos.forEach(p => {
+                        detalhamentoHtml += `&nbsp;&nbsp;• ${p.descricao} (${p.quantidade}x) - ${formatarReais(p.precoTotal)}<br>`;
+                    });
+                    detalhamentoHtml += '</div>';
+                }
+
+                if (processos.length > 0) {
+                    detalhamentoHtml += '<div style="margin-bottom:12px;"><strong>⚙️ Processos Adicionais:</strong><br>';
+                    processos.forEach(p => {
+                        detalhamentoHtml += `&nbsp;&nbsp;• ${p.descricao} - ${formatarReais(p.precoTotal)}<br>`;
+                    });
+                    detalhamentoHtml += '</div>';
+                }
+
+                document.getElementById("previewDetalhamento").innerHTML = detalhamentoHtml;
 
             } catch (erro) {
                 console.error("Erro ao atualizar preview:", erro);

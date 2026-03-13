@@ -4695,6 +4695,33 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
           parsed.dados.infoPedido.valorPedido = dadosAtualizacao.VALOR_TOTAL;
           alterado = true;
         }
+        // Datas automáticas por mudança de STATUS_PEDIDO (mesma lógica de atualizarStatusKanban)
+        if (dadosAtualizacao.STATUS_PEDIDO !== undefined && dadosAtualizacao.STATUS_PEDIDO !== null) {
+          try {
+            const tzAuto = SpreadsheetApp.getActive().getSpreadsheetTimeZone() || "America/Sao_Paulo";
+            const dataHojeAuto = Utilities.formatDate(new Date(), tzAuto, "dd/MM/yyyy");
+            if (!parsed.dados.infoPedido) parsed.dados.infoPedido = {};
+            const infoAuto = parsed.dados.infoPedido;
+            if (!infoAuto.statusDates) infoAuto.statusDates = {};
+            const spAuto = String(dadosAtualizacao.STATUS_PEDIDO).trim();
+            if (!infoAuto.dataVirouPedido && spAuto && spAuto !== "-") infoAuto.dataVirouPedido = dataHojeAuto;
+            if (/Preparação MP \/ CAD \/ CAM/i.test(spAuto) && !infoAuto.statusDates.preparacao) infoAuto.statusDates.preparacao = dataHojeAuto;
+            if (/Processo de Corte/i.test(spAuto) && !infoAuto.statusDates.corte) infoAuto.statusDates.corte = dataHojeAuto;
+            if (/Processo de Dobra/i.test(spAuto) && !infoAuto.statusDates.dobra) infoAuto.statusDates.dobra = dataHojeAuto;
+            if (/Processos Adicionais/i.test(spAuto) && !infoAuto.statusDates.adicionais) infoAuto.statusDates.adicionais = dataHojeAuto;
+            if (/Envio \/ Coleta/i.test(spAuto)) {
+              if (!infoAuto.statusDates.envioColeta) infoAuto.statusDates.envioColeta = dataHojeAuto;
+              if (!infoAuto.dataFimProducao) infoAuto.dataFimProducao = dataHojeAuto;
+            }
+            if (spAuto === "Finalizado") {
+              if (!infoAuto.dataEntrega) infoAuto.dataEntrega = dataHojeAuto;
+              if (infoAuto.dataEntrega) parsed.dados.observacoes.dataEntrega = infoAuto.dataEntrega;
+            }
+            alterado = true;
+          } catch (errAutoDate) {
+            Logger.log("Aviso ao registrar datas automáticas em atualizarProjetoNaPlanilha: " + (errAutoDate && errAutoDate.message));
+          }
+        }
         if (alterado) {
           sheetProj.getRange(linha, idxJson + 1).setValue(JSON.stringify(parsed));
         }
@@ -4771,6 +4798,25 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
         var idxStatusPedido = acharColuna("STATUS_PEDIDO");
         if (idxStatusPedido !== undefined) {
           sheetProj.getRange(linha, idxStatusPedido + 1).setValue("Processo de Preparação MP / CAD / CAM");
+          // Registrar data automática de preparação no JSON_DADOS ao converter em pedido
+          try {
+            var headersConvPrep = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
+            var idxJsonConvPrep = _findHeaderIndexProjetos(headersConvPrep, "JSON_DADOS");
+            if (idxJsonConvPrep >= 0) {
+              var jsonCellConvPrep = sheetProj.getRange(linha, idxJsonConvPrep + 1).getValue();
+              var parsedConvPrep = (jsonCellConvPrep && typeof jsonCellConvPrep === "string" && jsonCellConvPrep.trim()) ? (function() { try { return JSON.parse(jsonCellConvPrep); } catch(e) { return null; } })() : null;
+              if (!parsedConvPrep) parsedConvPrep = { dados: {} };
+              if (!parsedConvPrep.dados) parsedConvPrep.dados = {};
+              if (!parsedConvPrep.dados.infoPedido) parsedConvPrep.dados.infoPedido = {};
+              var infoConvPrep = parsedConvPrep.dados.infoPedido;
+              if (!infoConvPrep.statusDates) infoConvPrep.statusDates = {};
+              if (!infoConvPrep.dataVirouPedido) infoConvPrep.dataVirouPedido = dataCompetenciaStr;
+              if (!infoConvPrep.statusDates.preparacao) infoConvPrep.statusDates.preparacao = dataCompetenciaStr;
+              sheetProj.getRange(linha, idxJsonConvPrep + 1).setValue(JSON.stringify(parsedConvPrep));
+            }
+          } catch (errConvPrep) {
+            Logger.log("Aviso ao registrar data de preparação na conversão: " + (errConvPrep && errConvPrep.message));
+          }
         }
         ensurePedidoRow(linha);
         // DATA_COMPETENCIA (data da conversão) grava apenas na aba Pedidos, não na Projetos
@@ -5849,7 +5895,7 @@ function carregarRascunho(linhaOuKey) {
           const matchV = codigoProjetoPlanilha.match(/^(.+?)(_v\d+)$/);
           const codigoBase = matchV ? matchV[1] : codigoProjetoPlanilha;
           if (codigoBase.length >= 9) {
-            dadosRetorno.projeto = { data: codigoBase.substring(0, 6), indice: codigoBase.substring(6, 7), iniciais: codigoBase.substring(7, 9), versao: matchV ? matchV[2] : "" };
+            dadosRetorno.projeto = { data: codigoBase.substring(0, 6), indice: codigoBase.substring(6, 7), iniciais: codigoBase.substring(7), versao: matchV ? matchV[2] : "" };
           } else if (codigoBase.length >= 6) {
             const resto = codigoBase.substring(6);
             dadosRetorno.projeto = { data: codigoBase.substring(0, 6), indice: resto.length > 0 ? resto.charAt(0) : "", iniciais: resto.length > 1 ? resto.substring(1) : "", versao: matchV ? matchV[2] : "" };
