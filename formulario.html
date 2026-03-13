@@ -1876,6 +1876,7 @@
                 if (base.length >= 9) {
                     projetoData = base.substring(0, 6);
                     projetoIndice = base.substring(6, 7);
+                    // Iniciais podem ter 2 ou mais caracteres (ex: "AB", "ABC") – captura tudo a partir da posição 7
                     projetoIniciais = base.substring(7);
                 } else if (base.length >= 6 && !projetoData) {
                     projetoData = base.substring(0, 6);
