@@ -1722,7 +1722,7 @@
         let ordemCompraFornecedores = [];
 
         function escapeHtml(str) {
-            return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         }
 
         function openOrdemCompra(linha) {
@@ -1808,6 +1808,7 @@
                                     var unitInput = capturedTr.querySelector('.oc-unit');
                                     var totalInput = capturedTr.querySelector('.oc-total');
                                     function getOcQtd() {
+                                        // Lazy cache: find the qtd input once it's in the DOM
                                         var qtdEl = document.querySelector('.oc-qtd[data-item-idx="' + capturedItemIdx + '"]');
                                         return qtdEl ? (parseFloat(qtdEl.value) || 1) : 1;
                                     }
@@ -1832,15 +1833,11 @@
                             var iIdx = parseInt(qtdEl.dataset.itemIdx, 10);
                             qtdEl.addEventListener('input', function() {
                                 var q = parseFloat(qtdEl.value) || 1;
-                                document.querySelectorAll('.oc-unit[data-row-idx]').forEach(function(unitInput) {
-                                    // Only process rows belonging to this item
-                                    var tr = unitInput.closest('tr');
-                                    if (tr && parseInt(tr.dataset.itemIdx, 10) === iIdx) {
-                                        var u = parseFloat(unitInput.value);
-                                        var totalInput = document.querySelector('.oc-total[data-row-idx="' + unitInput.dataset.rowIdx + '"]');
-                                        if (totalInput && !isNaN(u) && u >= 0) {
-                                            totalInput.value = (u * q).toFixed(2);
-                                        }
+                                document.getElementById('ordemCompraLista').querySelectorAll('tr[data-item-idx="' + iIdx + '"] .oc-unit').forEach(function(unitInput) {
+                                    var u = parseFloat(unitInput.value);
+                                    var totalInput = document.querySelector('.oc-total[data-row-idx="' + unitInput.dataset.rowIdx + '"]');
+                                    if (totalInput && !isNaN(u) && u >= 0) {
+                                        totalInput.value = (u * q).toFixed(2);
                                     }
                                 });
                             });
