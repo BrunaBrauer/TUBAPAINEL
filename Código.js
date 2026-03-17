@@ -325,6 +325,7 @@ function atualizarPRDNoCatalogo(dadosNovos) {
     rowData[4]  = dadosNovos.ncm || "";          // E - NCM
     rowData[5]  = dadosNovos.preco || 0;         // F - Preço
     rowData[6]  = dadosNovos.unidade || "UN";    // G - Unidade
+    rowData[7]  = (dadosNovos.descricoesProcessos && typeof dadosNovos.descricoesProcessos === "object") ? JSON.stringify(dadosNovos.descricoesProcessos) : (rowData[7] || ""); // H - Características
     rowData[10] = temP("MP")  ? "X" : "";        // K - MP
     rowData[11] = temP("CL")  ? "X" : "";        // L - CL
     rowData[12] = temP("D")   ? "X" : "";        // M - D

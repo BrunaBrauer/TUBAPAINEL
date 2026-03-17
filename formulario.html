@@ -1541,6 +1541,21 @@
                 if (precoUnitario > 0) precosProcessos[sigla] = precoUnitario;
                 nomesProcessosCustom[sigla] = nomeCompleto || sigla;
             });
+            const descricoesProcessos = {};
+            div.querySelectorAll(".desc-proc-row").forEach(function(row) {
+                var sigla = row.dataset.sigla;
+                var input = row.querySelector(".desc-proc-input");
+                if (sigla && input && input.value.trim()) {
+                    descricoesProcessos[sigla] = input.value.trim();
+                }
+            });
+            div.querySelectorAll(".outro-proc-row").forEach(function(row) {
+                var siglaEl = row.querySelector(".outro-proc-sigla");
+                var sigla = siglaEl ? (siglaEl.value || "").trim().replace(/\s/g, '').toUpperCase() : "";
+                if (!sigla) return;
+                var desc = ((row.querySelector(".outro-proc-desc") || {}).value || "").trim();
+                if (desc) descricoesProcessos[sigla] = desc;
+            });
             const pecasPorChapaEl = div.querySelector(".produtoPecasPorChapa");
             const dadosProduto = {
                 codigo: codigo,
@@ -1551,6 +1566,7 @@
                 processos: processos,
                 pecasPorChapa: pecasPorChapaEl && pecasPorChapaEl.value.trim() !== "" ? parseFloat(pecasPorChapaEl.value) : "",
                 precosProcessos: precosProcessos,
+                descricoesProcessos: descricoesProcessos,
                 outrosProcessos: outrosProcessos,
                 nomesProcessosCustom: nomesProcessosCustom
             };
