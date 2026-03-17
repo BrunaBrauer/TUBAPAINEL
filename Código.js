@@ -529,6 +529,28 @@ function salvarClienteSeNovo(cliente) {
   SheetCache.invalidate(SHEET_CLIENTES);
 }
 
+/**
+ * Atualiza cadastro do cliente se já existir; caso contrário, cria novo.
+ * Campos atualizados: cpf, endereco, telefone, email, nomeAbreviado, responsavel (coluna 7).
+ */
+function atualizarClienteSalvo(cliente) {
+  if (!cliente || !cliente.nome || !String(cliente.nome).trim()) return;
+  const nomeNorm = String(cliente.nome).trim();
+  const dados = SheetCache.getData(SHEET_CLIENTES);
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0] || "").trim().toLowerCase() === nomeNorm.toLowerCase()) {
+      if (cliente.cpf != null && String(cliente.cpf).trim() !== "") SHEET_CLIENTES.getRange(i + 1, 2).setValue(String(cliente.cpf).trim());
+      if (cliente.endereco != null && String(cliente.endereco).trim() !== "") SHEET_CLIENTES.getRange(i + 1, 3).setValue(String(cliente.endereco).trim());
+      if (cliente.telefone != null && String(cliente.telefone).trim() !== "") SHEET_CLIENTES.getRange(i + 1, 4).setValue(String(cliente.telefone).trim());
+      if (cliente.email != null && String(cliente.email).trim() !== "") SHEET_CLIENTES.getRange(i + 1, 5).setValue(String(cliente.email).trim());
+      if (cliente.nomeAbreviado != null && String(cliente.nomeAbreviado).trim() !== "") SHEET_CLIENTES.getRange(i + 1, 6).setValue(String(cliente.nomeAbreviado).trim());
+      SheetCache.invalidate(SHEET_CLIENTES);
+      return;
+    }
+  }
+  salvarClienteSeNovo(cliente);
+}
+
 // ========================= FORNECEDORES (mesma estrutura de clientes: nome, cpf, endereco, telefone, email) =========================
 /** Retorna a aba "Cadastro de Fornecedores"; cria com cabeçalhos se não existir. */
 function getSheetFornecedores() {
@@ -1220,34 +1242,12 @@ function gerarPdfOrcamento(
     if (apenasPreview) {
       numeroSequencial = (dadosFormularioCompleto && dadosFormularioCompleto.numeroSequencial != null && dadosFormularioCompleto.numeroSequencial !== "") ? dadosFormularioCompleto.numeroSequencial : "—";
     } else if (sobrescreverVersao) {
-      // Prioridade: valor que está NA PLANILHA (o que o usuário editou manualmente), depois formulário, depois incrementar.
+      // Prioridade: JSON_DADOS (o que o usuário editou diretamente), depois formulário, depois aba Pedidos, depois incrementar.
       const sheetProj = SHEET_PROJ;
       const linhaProj = sheetProj ? findRowByColumnValue(sheetProj, "PROJETO", codigoProjeto) : null;
 
-      // 1) Ler da aba Pedidos (coluna Nº / NUMERO_SEQUENCIAL) — onde o usuário costuma editar manualmente
-      var sheetPed = SHEET_PED;
-      if (sheetPed && sheetPed.getLastRow() >= 2) {
-        var linhaPed = findRowByColumnValue(sheetPed, "PROJETO", codigoProjeto);
-        if (linhaPed) {
-          var headersPed = sheetPed.getRange(1, 1, 1, sheetPed.getLastColumn()).getValues()[0];
-          var rowPed = sheetPed.getRange(linhaPed, 1, linhaPed, sheetPed.getLastColumn()).getValues()[0];
-          var aliasesNum = ["NUMERO_SEQUENCIAL", "NUMERO SEQUENCIAL", "NÚMERO SEQUENCIAL", "Nº", "N"];
-          for (var a = 0; a < aliasesNum.length && (numeroSequencial == null || numeroSequencial === undefined); a++) {
-            for (var c = 0; c < headersPed.length; c++) {
-              if (String(headersPed[c] || "").trim() === String(aliasesNum[a] || "").trim()) {
-                var valPed = rowPed[c];
-                if (valPed != null && String(valPed).trim() !== "") {
-                  numeroSequencial = valPed;
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // 2) Se não achou em Pedidos, ler do JSON_DADOS na aba Projetos
-      if ((numeroSequencial == null || numeroSequencial === undefined) && linhaProj && sheetProj) {
+      // 1) Ler do JSON_DADOS na aba Projetos (fonte primária — o que o usuário editou diretamente na planilha)
+      if (linhaProj && sheetProj) {
         var numCols = sheetProj.getLastColumn();
         var headers = sheetProj.getRange(1, 1, 1, numCols).getValues()[0];
         var jsonIdx = _findHeaderIndex(headers, "JSON_DADOS");
@@ -1255,15 +1255,39 @@ function gerarPdfOrcamento(
           var jsonCell = sheetProj.getRange(linhaProj, jsonIdx + 1).getValue();
           try {
             var parsed = jsonCell ? JSON.parse(String(jsonCell).trim()) : null;
-            if (parsed && parsed.numeroSequencial != null) numeroSequencial = parsed.numeroSequencial;
-            else if (parsed && parsed.dados && parsed.dados.numeroSequencial != null) numeroSequencial = parsed.dados.numeroSequencial;
+            if (parsed && parsed.numeroSequencial != null && String(parsed.numeroSequencial).trim() !== "") numeroSequencial = parsed.numeroSequencial;
+            else if (parsed && parsed.dados && parsed.dados.numeroSequencial != null && String(parsed.dados.numeroSequencial).trim() !== "") numeroSequencial = parsed.dados.numeroSequencial;
           } catch (e) {}
         }
       }
 
-      // 3) Se ainda não tem, usar o que veio do formulário
-      if ((numeroSequencial == null || numeroSequencial === undefined) && dadosFormularioCompleto && dadosFormularioCompleto.numeroSequencial != null && String(dadosFormularioCompleto.numeroSequencial).trim() !== "")
+      // 2) Se não achou no JSON_DADOS, usar o que veio do formulário
+      if ((numeroSequencial == null || numeroSequencial === undefined || String(numeroSequencial).trim() === "") && dadosFormularioCompleto && dadosFormularioCompleto.numeroSequencial != null && String(dadosFormularioCompleto.numeroSequencial).trim() !== "")
         numeroSequencial = dadosFormularioCompleto.numeroSequencial;
+
+      // 3) Se ainda não tem, ler da aba Pedidos (coluna Nº / NUMERO_SEQUENCIAL)
+      if (numeroSequencial == null || numeroSequencial === undefined || String(numeroSequencial).trim() === "") {
+        var sheetPed = SHEET_PED;
+        if (sheetPed && sheetPed.getLastRow() >= 2) {
+          var linhaPed = findRowByColumnValue(sheetPed, "PROJETO", codigoProjeto);
+          if (linhaPed) {
+            var headersPed = sheetPed.getRange(1, 1, 1, sheetPed.getLastColumn()).getValues()[0];
+            var rowPed = sheetPed.getRange(linhaPed, 1, linhaPed, sheetPed.getLastColumn()).getValues()[0];
+            var aliasesNum = ["NUMERO_SEQUENCIAL", "NUMERO SEQUENCIAL", "NÚMERO SEQUENCIAL", "Nº", "N"];
+            for (var a = 0; a < aliasesNum.length && (numeroSequencial == null || numeroSequencial === undefined || String(numeroSequencial).trim() === ""); a++) {
+              for (var c = 0; c < headersPed.length; c++) {
+                if (String(headersPed[c] || "").trim() === String(aliasesNum[a] || "").trim()) {
+                  var valPed = rowPed[c];
+                  if (valPed != null && String(valPed).trim() !== "") {
+                    numeroSequencial = valPed;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
 
       // 4) Só então incrementar
       if (numeroSequencial == null || numeroSequencial === undefined || String(numeroSequencial).trim() === "")
@@ -2364,6 +2388,13 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
           inserirProdutoNaRelacao(produtoRelacao);
         }
       });
+    }
+
+    // Atualizar cadastro do cliente (cria se novo, atualiza se existente)
+    try {
+      if (cliente && cliente.nome) atualizarClienteSalvo(cliente);
+    } catch (eCliente) {
+      Logger.log("Aviso registrarOrcamento: falha ao atualizar cadastro do cliente: " + (eCliente && eCliente.message));
     }
 
   } catch (err) {
@@ -4667,6 +4698,7 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
     }
 
     // Atualizar JSON_DADOS para o formulário refletir alterações (condições de pagamento, número sequencial, NF, etc.)
+    var autoDataEntregaCalculada = null; // rastreia dataEntrega calculada automaticamente pelo status "Finalizado"
     try {
       var headersAtual = sheetProj.getRange(1, 1, 1, sheetProj.getLastColumn()).getValues()[0];
       var idxJson = _findHeaderIndexProjetos(headersAtual, "JSON_DADOS");
@@ -4734,7 +4766,10 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
             }
             if (spAuto === "Finalizado") {
               if (!infoAuto.dataEntrega) infoAuto.dataEntrega = dataHojeAuto;
-              if (infoAuto.dataEntrega) parsed.dados.observacoes.dataEntrega = infoAuto.dataEntrega;
+              if (infoAuto.dataEntrega) {
+                parsed.dados.observacoes.dataEntrega = infoAuto.dataEntrega;
+                autoDataEntregaCalculada = infoAuto.dataEntrega; // para sincronizar com aba Pedidos
+              }
             }
             alterado = true;
           } catch (errAutoDate) {
@@ -4773,6 +4808,8 @@ function atualizarProjetoNaPlanilha(linha, dadosAtualizacao, opcoes) {
           if (dadosAtualizacao.HISTORICO_PAGAMENTOS !== undefined) syncUpdates.HISTORICO_PAGAMENTOS = dadosAtualizacao.HISTORICO_PAGAMENTOS;
           if (dadosAtualizacao.NOTA_FISCAL !== undefined) syncUpdates.NOTA_FISCAL = dadosAtualizacao.NOTA_FISCAL;
           if (dadosAtualizacao.NUMERO_SEQUENCIAL !== undefined) syncUpdates.NUMERO_SEQUENCIAL = dadosAtualizacao.NUMERO_SEQUENCIAL;
+          // Incluir dataEntrega calculada automaticamente pelo status "Finalizado" (não estava em dadosAtualizacao)
+          if (autoDataEntregaCalculada && syncUpdates.DATA_ENTREGA === undefined) syncUpdates.DATA_ENTREGA = autoDataEntregaCalculada;
           if (Object.keys(syncUpdates).length > 0) {
             var projObj = {};
             for (var i = 0; i < headers.length && i < rowData.length; i++) projObj[headers[i]] = rowData[i];
@@ -5101,6 +5138,29 @@ function getInfoPedido(linha) {
       if (ip.statusDates && typeof ip.statusDates === "object") {
         infoPedido.statusDates = {};
         for (var k in ip.statusDates) { if (Object.prototype.hasOwnProperty.call(ip.statusDates, k)) infoPedido.statusDates[k] = _formatarDataBr(ip.statusDates[k]); }
+      }
+      // Fallback: ler datas de processo de dados.temposReais se statusDates não estiver completo
+      if (dados.temposReais && typeof dados.temposReais === "object") {
+        var tr = dados.temposReais;
+        if (!infoPedido.statusDates) infoPedido.statusDates = {};
+        var mapaTempos = {
+          preparacao: ["preparacaoInicio", "preparacao", "Preparação", "prep"],
+          corte: ["corteInicio", "corte", "Corte"],
+          dobra: ["dobraInicio", "dobra", "Dobra"],
+          adicionais: ["adicionaisInicio", "adicionais", "Adicionais"],
+          envioColeta: ["envioColetaInicio", "envioColeta", "Envio", "envio"]
+        };
+        for (var proc in mapaTempos) {
+          if (!infoPedido.statusDates[proc]) {
+            var aliases = mapaTempos[proc];
+            for (var ai = 0; ai < aliases.length; ai++) {
+              if (tr[aliases[ai]] != null && String(tr[aliases[ai]]).trim() !== "") {
+                infoPedido.statusDates[proc] = _formatarDataBr(tr[aliases[ai]]);
+                break;
+              }
+            }
+          }
+        }
       }
     } catch (e) {
       Logger.log("getInfoPedido: erro ao ler JSON_DADOS: " + (e.message || e));
@@ -5785,6 +5845,25 @@ function atualizarRascunho(linhaOuKey, dados) {
       }
     }
     if (numeroSequencialSalvar != null) dados.numeroSequencial = numeroSequencialSalvar;
+
+    // Preservar temNotaFiscal e valorNF do JSON existente para não os perder ao salvar rascunho
+    try {
+      const jsonIdxNF = _findHeaderIndex(headers, "JSON_DADOS");
+      if (jsonIdxNF >= 0 && rowData[jsonIdxNF] != null && String(rowData[jsonIdxNF]).trim() !== "") {
+        const parsedNF = JSON.parse(String(rowData[jsonIdxNF]).trim());
+        const obsNFExist = parsedNF && parsedNF.dados && parsedNF.dados.observacoes ? parsedNF.dados.observacoes : {};
+        if (!dados.observacoes) dados.observacoes = {};
+        if (dados.observacoes.temNotaFiscal == null && obsNFExist.temNotaFiscal != null) {
+          dados.observacoes.temNotaFiscal = obsNFExist.temNotaFiscal;
+        }
+        if ((dados.observacoes.valorNF == null || dados.observacoes.valorNF === "") && obsNFExist.valorNF != null && obsNFExist.valorNF !== "") {
+          dados.observacoes.valorNF = obsNFExist.valorNF;
+        }
+      }
+    } catch (eNF) {
+      Logger.log("Aviso atualizarRascunho: falha ao preservar temNotaFiscal/valorNF: " + (eNF && eNF.message));
+    }
+
     const dadosJson = JSON.stringify({
       nome: codigoProjeto,
       dataSalvo: agora.toISOString(),
@@ -5828,6 +5907,13 @@ function atualizarRascunho(linhaOuKey, dados) {
     }
 
     // Não gera PDF aqui ao salvar rascunho: evita travar em "Atualizando..." (timeout). Para gerar/atualizar PDF use "Finalizar / Gerar PDF".
+
+    // Atualizar cadastro do cliente (cria se novo, atualiza se existente)
+    try {
+      if (dados.cliente && dados.cliente.nome) atualizarClienteSalvo(dados.cliente);
+    } catch (eCliente) {
+      Logger.log("Aviso atualizarRascunho: falha ao atualizar cadastro do cliente: " + (eCliente && eCliente.message));
+    }
 
     return { success: true };
   } catch (e) {
@@ -5909,8 +5995,11 @@ function carregarRascunho(linhaOuKey) {
         if (dadosRetorno.cliente == null) dadosRetorno.cliente = {};
         const clientePlanilha = (idxClienteCol >= 0 && rowData[idxClienteCol] != null && String(rowData[idxClienteCol]).trim() !== "") ? String(rowData[idxClienteCol]).trim() : "";
         dadosRetorno.cliente.nome = clientePlanilha || (dadosRetorno.cliente.nome || "");
-        // Projeto: preencher data, indice, iniciais a partir da coluna PROJETO para o formulário exibir e salvar corretamente
-        if (codigoProjetoPlanilha.length >= 6) {
+        // Projeto: usar data/indice/iniciais do JSON_DADOS (fonte da verdade ao editar).
+        // Só re-parseia da coluna PROJETO se o JSON não tiver um campo projeto.data válido (YYMMDD).
+        const projetoExistenteJson = dadosRetorno.projeto;
+        const temProjetoValidoJson = projetoExistenteJson && projetoExistenteJson.data && /^\d{6}$/.test(String(projetoExistenteJson.data));
+        if (!temProjetoValidoJson && codigoProjetoPlanilha.length >= 6) {
           const matchV = codigoProjetoPlanilha.match(/^(.+?)(_v\d+)$/);
           const codigoBase = matchV ? matchV[1] : codigoProjetoPlanilha;
           if (codigoBase.length >= 9) {
@@ -5919,6 +6008,10 @@ function carregarRascunho(linhaOuKey) {
             const resto = codigoBase.substring(6);
             dadosRetorno.projeto = { data: codigoBase.substring(0, 6), indice: resto.length > 0 ? resto.charAt(0) : "", iniciais: resto.length > 1 ? resto.substring(1) : "", versao: matchV ? matchV[2] : "" };
           }
+        } else if (temProjetoValidoJson && codigoProjetoPlanilha) {
+          // Preserva o versao da coluna PROJETO (pode ter sido incrementado: _v2, _v3...)
+          const matchVProj = codigoProjetoPlanilha.match(/^(.+?)(_v\d+)$/);
+          dadosRetorno.projeto.versao = matchVProj ? matchVProj[2] : "";
         }
         // Data do cliente (coluna DATA): converter para yyyy-MM-dd para input type="date"
         const dataRaw = idxDataCol >= 0 ? rowData[idxDataCol] : null;
