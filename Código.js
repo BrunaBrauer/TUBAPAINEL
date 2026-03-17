@@ -1704,7 +1704,8 @@ function gerarPdfOrdemProducao(linhaOuKey) {
           precoUnitario: 0,
           precoTotal: 0,
           processos: prod.processos && Array.isArray(prod.processos) ? prod.processos : [],
-          descricoesProcessos: prod.descricoesProcessos && typeof prod.descricoesProcessos === 'object' ? prod.descricoesProcessos : {}
+          descricoesProcessos: prod.descricoesProcessos && typeof prod.descricoesProcessos === 'object' ? prod.descricoesProcessos : {},
+          nomesProcessosCustom: prod.nomesProcessosCustom && typeof prod.nomesProcessosCustom === 'object' ? prod.nomesProcessosCustom : {}
         });
       });
     }
@@ -1730,17 +1731,33 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     const headerColor = "#FF9933";
     const rowColor = "#FDF5E6";
 
-    var todosProcessosOp = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
+    var todosProcessosPadrao = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
     var processosPresentes = [];
+    // Build merged custom-names map from all products
+    var nomesProcessosCustomMerged = {};
     resultados.forEach(function (p) {
+      if (p.nomesProcessosCustom) {
+        Object.keys(p.nomesProcessosCustom).forEach(function(k) {
+          if (!nomesProcessosCustomMerged[k]) nomesProcessosCustomMerged[k] = p.nomesProcessosCustom[k];
+        });
+      }
       var arr = p.processos;
       if (arr && Array.isArray(arr)) {
         arr.forEach(function (sigla) {
-          if (todosProcessosOp.indexOf(sigla) >= 0 && processosPresentes.indexOf(sigla) < 0) {
+          if (processosPresentes.indexOf(sigla) < 0) {
             processosPresentes.push(sigla);
           }
         });
       }
+    });
+    // Sort: standard processes first in canonical order, then custom alphabetically
+    processosPresentes.sort(function(a, b) {
+      var ia = todosProcessosPadrao.indexOf(a);
+      var ib = todosProcessosPadrao.indexOf(b);
+      if (ia === -1) ia = todosProcessosPadrao.length;
+      if (ib === -1) ib = todosProcessosPadrao.length;
+      if (ia !== ib) return ia - ib;
+      return a < b ? -1 : (a > b ? 1 : 0);
     });
 
     function temProcessoOp(p, sigla) {
@@ -1790,7 +1807,7 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     var legendaProcessosHtml = "";
     if (processosPresentes.length > 0) {
       var linhasLegenda = processosPresentes.map(function (sigla) {
-        var desc = PROCESSOS_DESCRICOES[sigla] || sigla;
+        var desc = PROCESSOS_DESCRICOES[sigla] || nomesProcessosCustomMerged[sigla] || sigla;
         return '<tr>'
           + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:4px; border:0.1px solid #fff; font-size:9pt; font-weight:bold; text-align:center; width:60px;">' + sigla + '</td>'
           + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:4px; border:0.1px solid #fff; font-size:9pt;">' + desc + '</td>'
@@ -1939,7 +1956,8 @@ function getItensProjetoParaOrdemCompra(linhaOuKey) {
         descricao: p.descricao || "",
         quantidade: parseFloat(p.quantidade) || 0,
         processos: p.processos && Array.isArray(p.processos) ? p.processos : [],
-        precosProcessos: p.precosProcessos && typeof p.precosProcessos === "object" ? p.precosProcessos : {}
+        precosProcessos: p.precosProcessos && typeof p.precosProcessos === "object" ? p.precosProcessos : {},
+        nomesProcessosCustom: p.nomesProcessosCustom && typeof p.nomesProcessosCustom === "object" ? p.nomesProcessosCustom : {}
       };
     });
     return { itens: itens, codigoProjeto: codigoProjeto };
@@ -2003,7 +2021,7 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       var vt = parseFloat(p.valorTotal);
       if (isNaN(vu) || vu <= 0) vu = (qtd > 0 && !isNaN(vt) && vt > 0) ? vt / qtd : 0;
       if (isNaN(vt) || vt <= 0) vt = vu * qtd;
-      var processoCell = p.processo ? _escHtml(p.processo) : "-";
+      var processoCell = p.processo ? _escHtml(p.processoNomeCompleto ? p.processo + ' — ' + p.processoNomeCompleto : p.processo) : "-";
       return (
         "<tr>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + _escHtml(p.codigo || "") + "</td>" +
@@ -2124,9 +2142,14 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
       });
     }
   });
-  // Ordena na ordem padrão
+  // Ordena na ordem padrão; processos customizados vão ao final (alfabeticamente)
   todosProcessos.sort(function(a, b) {
-    return ordemProcessos.indexOf(a) - ordemProcessos.indexOf(b);
+    var ia = ordemProcessos.indexOf(a);
+    var ib = ordemProcessos.indexOf(b);
+    if (ia === -1) ia = ordemProcessos.length;
+    if (ib === -1) ib = ordemProcessos.length;
+    if (ia !== ib) return ia - ib;
+    return a < b ? -1 : (a > b ? 1 : 0);
   });
   // Se o usuário digitou algo manual no campo obsProcessos, usa isso; senão usa a união dos itens
   const processosManual = (observacoes && observacoes.processos) ? String(observacoes.processos).trim() : "";

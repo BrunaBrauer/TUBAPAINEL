@@ -1793,12 +1793,22 @@
                                     ? '<td style="text-align:center" rowspan="' + processos.length + '"><input type="number" class="oc-qtd" data-item-idx="' + itemIdx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="0.01" style="width:55px; padding:3px 5px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>'
                                     : '';
                                 var totalSugerido = (precoSugerido && item.quantidade) ? (Number(precoSugerido) * Number(item.quantidade)).toFixed(2) : '';
+                                var procNomeCompleto = (proc && item.nomesProcessosCustom && item.nomesProcessosCustom[proc]) ? item.nomesProcessosCustom[proc] : '';
+                                var procBadge;
+                                if (proc) {
+                                    var badgeTip = escapeHtml(procNomeCompleto || proc);
+                                    var badgeLabel = escapeHtml(proc);
+                                    var badgeSuffix = procNomeCompleto ? ' <span style="font-weight:normal; color:#5c6bc0; font-size:10px;">— ' + escapeHtml(procNomeCompleto) + '</span>' : '';
+                                    procBadge = '<span style="background:#e3f2fd; color:#1565c0; padding:2px 5px; border-radius:4px; font-size:11px;" title="' + badgeTip + '">' + badgeLabel + badgeSuffix + '</span>';
+                                } else {
+                                    procBadge = '<span style="color:#999; font-size:11px;">—</span>';
+                                }
                                 tr.innerHTML =
                                     '<td style="text-align:center"><input type="checkbox" class="oc-incluir" data-row-idx="' + rowIdx + '" data-item-idx="' + itemIdx + '" data-proc="' + (proc || '') + '"></td>' +
                                     (isFirst ? '<td rowspan="' + processos.length + '" style="font-size:11px;">' + escapeHtml(item.codigo || '') + '</td>' : '') +
                                     (isFirst ? '<td rowspan="' + processos.length + '" style="max-width:160px; font-size:11px;">' + escapeHtml(item.descricao || '') + '</td>' : '') +
                                     qtdCell +
-                                    '<td style="padding:3px 4px;">' + (proc ? '<span style="background:#e3f2fd; color:#1565c0; padding:2px 5px; border-radius:4px; font-size:11px;">' + escapeHtml(proc) + '</span>' : '<span style="color:#999; font-size:11px;">—</span>') + '</td>' +
+                                    '<td style="padding:3px 4px;">' + procBadge + '</td>' +
                                     '<td><input type="number" step="0.01" min="0" class="oc-unit" data-row-idx="' + rowIdx + '" placeholder="unit." inputmode="decimal" value="' + precoSugerido + '" style="width:100%; padding:3px 6px; border:1px solid #e2e8f0; border-radius:6px;"></td>' +
                                     '<td><input type="number" step="0.01" min="0" class="oc-total" data-row-idx="' + rowIdx + '" placeholder="total" inputmode="decimal" value="' + totalSugerido + '" style="width:100%; padding:3px 6px; border:1px solid #c8e6c9; border-radius:6px; background:#f9fff9;"></td>';
                                 ocFrag.appendChild(tr);
@@ -1920,6 +1930,7 @@
                     descricao: item.descricao,
                     quantidade: qtd,
                     processo: proc || undefined,
+                    processoNomeCompleto: (item.nomesProcessosCustom && proc && item.nomesProcessosCustom[proc]) ? item.nomesProcessosCustom[proc] : undefined,
                     valorUnitario: valorUnit
                 });
             });
