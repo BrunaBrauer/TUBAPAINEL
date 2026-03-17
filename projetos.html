@@ -1188,19 +1188,17 @@
                                 placeholder="Email"></div>
                     </div>
                 </div>
-                <p style="margin: 0 0 12px 0; font-size: 12px;">Marque os itens que terão ordem de compra e informe o
-                    valor <strong>unitário</strong> ou <strong>total</strong> (ex.: preço de pintura por item). Apenas
-                    itens com valor entram no PDF.</p>
+                <p style="margin: 0 0 12px 0; font-size: 12px;">Selecione os processos de cada item para a ordem de compra. O preço do processo é pré-preenchido quando cadastrado, mas pode ser editado. Apenas linhas com valor entram no PDF.</p>
                 <div class="table-wrapper" style="min-width: auto; max-height: 50vh; overflow: auto;">
                     <table style="font-size: 12px;">
                         <thead>
                             <tr>
-                                <th style="width: 40px;">Incluir</th>
+                                <th style="width: 30px;">✓</th>
                                 <th>Código</th>
                                 <th>Descrição</th>
-                                <th style="text-align: center; width: 80px;">Qtd</th>
-                                <th style="width: 120px;">Valor (R$)</th>
-                                <th style="width: 140px;">Tipo</th>
+                                <th style="text-align:center; width:70px;">Qtd</th>
+                                <th style="width:110px;">Processo</th>
+                                <th style="width:120px;">Valor Unit. (R$)</th>
                             </tr>
                         </thead>
                         <tbody id="ordemCompraLista"></tbody>
@@ -1722,6 +1720,10 @@
         let ordemCompraItens = [];
         let ordemCompraFornecedores = [];
 
+        function escapeHtml(str) {
+            return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
         function openOrdemCompra(linha) {
             ordemCompraLinha = linha;
             ordemCompraItens = [];
@@ -1767,16 +1769,32 @@
                         document.querySelector('#ordemCompraModal .table-wrapper').style.display = 'none';
                     } else {
                         var ocFrag = document.createDocumentFragment();
-                        ordemCompraItens.forEach(function (item, idx) {
-                            var tr = document.createElement('tr');
-                            tr.innerHTML =
-                                '<td><input type="checkbox" class="oc-incluir" data-idx="' + idx + '"></td>' +
-                                '<td>' + (item.codigo || '') + '</td>' +
-                                '<td>' + (item.descricao || '') + '</td>' +
-                                '<td style="text-align:center"><input type="number" class="oc-qtd" data-idx="' + idx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="1" style="width:70px; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>' +
-                                '<td><input type="text" class="oc-valor" data-idx="' + idx + '" placeholder="0,00" inputmode="decimal" style="width:100%; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px;"></td>' +
-                                '<td><label><input type="radio" name="oc-tipo-' + idx + '" value="unit" checked> Unit.</label> <label><input type="radio" name="oc-tipo-' + idx + '" value="total"> Total</label></td>';
-                            ocFrag.appendChild(tr);
+                        var rowIdx = 0;
+                        ordemCompraItens.forEach(function (item, itemIdx) {
+                            var processos = (item.processos && item.processos.length > 0) ? item.processos : [''];
+                            processos.forEach(function (proc, procIdx) {
+                                var precoSugerido = '';
+                                if (proc && item.precosProcessos && item.precosProcessos[proc] != null && item.precosProcessos[proc] !== '') {
+                                    precoSugerido = Number(item.precosProcessos[proc]).toFixed(2);
+                                }
+                                var isFirst = procIdx === 0;
+                                var tr = document.createElement('tr');
+                                tr.dataset.itemIdx = itemIdx;
+                                tr.dataset.rowIdx = rowIdx;
+                                tr.dataset.proc = proc || '';
+                                var qtdCell = isFirst
+                                    ? '<td style="text-align:center" rowspan="' + processos.length + '"><input type="number" class="oc-qtd" data-item-idx="' + itemIdx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="1" style="width:60px; padding:4px 6px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>'
+                                    : '';
+                                tr.innerHTML =
+                                    '<td style="text-align:center"><input type="checkbox" class="oc-incluir" data-row-idx="' + rowIdx + '" data-item-idx="' + itemIdx + '" data-proc="' + (proc || '') + '"></td>' +
+                                    (isFirst ? '<td rowspan="' + processos.length + '">' + escapeHtml(item.codigo || '') + '</td>' : '') +
+                                    (isFirst ? '<td rowspan="' + processos.length + '" style="max-width:180px;">' + escapeHtml(item.descricao || '') + '</td>' : '') +
+                                    qtdCell +
+                                    '<td style="padding:3px 6px;">' + (proc ? '<span style="background:#e3f2fd; color:#1565c0; padding:2px 6px; border-radius:4px; font-size:11px;">' + escapeHtml(proc) + '</span>' : '<span style="color:#999; font-size:11px;">—</span>') + '</td>' +
+                                    '<td><input type="text" class="oc-valor" data-row-idx="' + rowIdx + '" placeholder="0,00" inputmode="decimal" value="' + precoSugerido + '" style="width:100%; padding:4px 8px; border:1px solid #e2e8f0; border-radius:6px;"></td>';
+                                ocFrag.appendChild(tr);
+                                rowIdx++;
+                            });
                         });
                         document.getElementById('ordemCompraLista').appendChild(ocFrag);
                     }
@@ -1826,23 +1844,25 @@
                 return;
             }
             var itensComValor = [];
-            ordemCompraItens.forEach(function (item, idx) {
-                var inputValor = document.querySelector('.oc-valor[data-idx="' + idx + '"]');
-                var radios = document.querySelectorAll('input[name="oc-tipo-' + idx + '"]');
-                var isUnit = true;
-                if (radios.length >= 2) isUnit = radios[0].checked;
-                var raw = (inputValor && inputValor.value) ? String(inputValor.value).trim().replace(/\s/g, '').replace(/\./g, '').replace(',', '.') : '';
+            document.querySelectorAll('#ordemCompraLista .oc-incluir:checked').forEach(function(cb) {
+                var itemIdx = parseInt(cb.dataset.itemIdx, 10);
+                var rowIdx = cb.dataset.rowIdx;
+                var proc = cb.dataset.proc || '';
+                if (isNaN(itemIdx) || itemIdx < 0 || itemIdx >= ordemCompraItens.length) return;
+                var item = ordemCompraItens[itemIdx];
+                var inputValor = document.querySelector('.oc-valor[data-row-idx="' + rowIdx + '"]');
+                var raw = (inputValor && inputValor.value) ? String(inputValor.value).trim().replace(/\s/g,'').replace(/\./g,'').replace(',','.') : '';
                 var num = raw ? parseFloat(raw) : NaN;
                 if (isNaN(num) || num <= 0) return;
-                var inputQtd = document.querySelector('.oc-qtd[data-idx="' + idx + '"]');
+                var inputQtd = document.querySelector('.oc-qtd[data-item-idx="' + itemIdx + '"]');
                 var qtd = (inputQtd && inputQtd.value !== '') ? parseFloat(inputQtd.value) : item.quantidade;
                 if (isNaN(qtd) || qtd <= 0) qtd = item.quantidade || 0;
                 itensComValor.push({
                     codigo: item.codigo,
                     descricao: item.descricao,
                     quantidade: qtd,
-                    valorUnitario: isUnit ? num : undefined,
-                    valorTotal: isUnit ? undefined : num
+                    processo: proc || undefined,
+                    valorUnitario: num
                 });
             });
             if (itensComValor.length === 0) {
