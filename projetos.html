@@ -1188,19 +1188,18 @@
                                 placeholder="Email"></div>
                     </div>
                 </div>
-                <p style="margin: 0 0 12px 0; font-size: 12px;">Marque os itens que terão ordem de compra e informe o
-                    valor <strong>unitário</strong> ou <strong>total</strong> (ex.: preço de pintura por item). Apenas
-                    itens com valor entram no PDF.</p>
+                <p style="margin: 0 0 12px 0; font-size: 12px;">Selecione os processos de cada item. Digite preço <strong>unitário</strong> ou <strong>total</strong> — o outro campo é calculado automaticamente. Apenas linhas marcadas entram no PDF.</p>
                 <div class="table-wrapper" style="min-width: auto; max-height: 50vh; overflow: auto;">
                     <table style="font-size: 12px;">
                         <thead>
                             <tr>
-                                <th style="width: 40px;">Incluir</th>
+                                <th style="width: 30px;">✓</th>
                                 <th>Código</th>
                                 <th>Descrição</th>
-                                <th style="text-align: center; width: 80px;">Qtd</th>
-                                <th style="width: 120px;">Valor (R$)</th>
-                                <th style="width: 140px;">Tipo</th>
+                                <th style="text-align:center; width:60px;">Qtd</th>
+                                <th style="width:100px;">Processo</th>
+                                <th style="width:90px;">Unit. (R$)</th>
+                                <th style="width:90px;">Total (R$)</th>
                             </tr>
                         </thead>
                         <tbody id="ordemCompraLista"></tbody>
@@ -1722,6 +1721,10 @@
         let ordemCompraItens = [];
         let ordemCompraFornecedores = [];
 
+        function escapeHtml(str) {
+            return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+
         function openOrdemCompra(linha) {
             ordemCompraLinha = linha;
             ordemCompraItens = [];
@@ -1767,18 +1770,88 @@
                         document.querySelector('#ordemCompraModal .table-wrapper').style.display = 'none';
                     } else {
                         var ocFrag = document.createDocumentFragment();
-                        ordemCompraItens.forEach(function (item, idx) {
-                            var tr = document.createElement('tr');
-                            tr.innerHTML =
-                                '<td><input type="checkbox" class="oc-incluir" data-idx="' + idx + '"></td>' +
-                                '<td>' + (item.codigo || '') + '</td>' +
-                                '<td>' + (item.descricao || '') + '</td>' +
-                                '<td style="text-align:center"><input type="number" class="oc-qtd" data-idx="' + idx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="1" style="width:70px; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>' +
-                                '<td><input type="text" class="oc-valor" data-idx="' + idx + '" placeholder="0,00" inputmode="decimal" style="width:100%; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px;"></td>' +
-                                '<td><label><input type="radio" name="oc-tipo-' + idx + '" value="unit" checked> Unit.</label> <label><input type="radio" name="oc-tipo-' + idx + '" value="total"> Total</label></td>';
-                            ocFrag.appendChild(tr);
+                        var rowIdx = 0;
+                        ordemCompraItens.forEach(function (item, itemIdx) {
+                            // PRD separator row between items
+                            if (itemIdx > 0) {
+                                var sepTr = document.createElement('tr');
+                                sepTr.innerHTML = '<td colspan="7" style="background:#e8eaf6; padding:3px 8px; font-size:11px; color:#3949ab; font-weight:600; border-top:2px solid #c5cae9;">─── ' + escapeHtml(item.codigo || '') + ' — ' + escapeHtml(item.descricao || '') + '</td>';
+                                ocFrag.appendChild(sepTr);
+                            }
+                            var processos = (item.processos && item.processos.length > 0) ? item.processos : [''];
+                            processos.forEach(function (proc, procIdx) {
+                                var precoSugerido = '';
+                                if (proc && item.precosProcessos && item.precosProcessos[proc] != null && item.precosProcessos[proc] !== '') {
+                                    precoSugerido = Number(item.precosProcessos[proc]).toFixed(2);
+                                }
+                                var isFirst = procIdx === 0;
+                                var tr = document.createElement('tr');
+                                tr.dataset.itemIdx = itemIdx;
+                                tr.dataset.rowIdx = rowIdx;
+                                tr.dataset.proc = proc || '';
+                                var qtdCell = isFirst
+                                    ? '<td style="text-align:center" rowspan="' + processos.length + '"><input type="number" class="oc-qtd" data-item-idx="' + itemIdx + '" value="' + (item.quantidade != null ? item.quantidade : '') + '" min="0" step="0.01" style="width:55px; padding:3px 5px; border:1px solid #e2e8f0; border-radius:6px; text-align:center;"></td>'
+                                    : '';
+                                var totalSugerido = (precoSugerido && item.quantidade) ? (Number(precoSugerido) * Number(item.quantidade)).toFixed(2) : '';
+                                var procNomeCompleto = (proc && item.nomesProcessosCustom && item.nomesProcessosCustom[proc]) ? item.nomesProcessosCustom[proc] : '';
+                                var procBadge;
+                                if (proc) {
+                                    var badgeTip = escapeHtml(procNomeCompleto || proc);
+                                    var badgeLabel = escapeHtml(proc);
+                                    var badgeSuffix = procNomeCompleto ? ' <span style="font-weight:normal; color:#5c6bc0; font-size:10px;">— ' + escapeHtml(procNomeCompleto) + '</span>' : '';
+                                    procBadge = '<span style="background:#e3f2fd; color:#1565c0; padding:2px 5px; border-radius:4px; font-size:11px;" title="' + badgeTip + '">' + badgeLabel + badgeSuffix + '</span>';
+                                } else {
+                                    procBadge = '<span style="color:#999; font-size:11px;">—</span>';
+                                }
+                                tr.innerHTML =
+                                    '<td style="text-align:center"><input type="checkbox" class="oc-incluir" data-row-idx="' + rowIdx + '" data-item-idx="' + itemIdx + '" data-proc="' + (proc || '') + '"></td>' +
+                                    (isFirst ? '<td rowspan="' + processos.length + '" style="font-size:11px;">' + escapeHtml(item.codigo || '') + '</td>' : '') +
+                                    (isFirst ? '<td rowspan="' + processos.length + '" style="max-width:160px; font-size:11px;">' + escapeHtml(item.descricao || '') + '</td>' : '') +
+                                    qtdCell +
+                                    '<td style="padding:3px 4px;">' + procBadge + '</td>' +
+                                    '<td><input type="number" step="0.01" min="0" class="oc-unit" data-row-idx="' + rowIdx + '" placeholder="unit." inputmode="decimal" value="' + precoSugerido + '" style="width:100%; padding:3px 6px; border:1px solid #e2e8f0; border-radius:6px;"></td>' +
+                                    '<td><input type="number" step="0.01" min="0" class="oc-total" data-row-idx="' + rowIdx + '" placeholder="total" inputmode="decimal" value="' + totalSugerido + '" style="width:100%; padding:3px 6px; border:1px solid #c8e6c9; border-radius:6px; background:#f9fff9;"></td>';
+                                ocFrag.appendChild(tr);
+
+                                // Setup unit↔total auto-calc
+                                (function(capturedTr, capturedItemIdx) {
+                                    var unitInput = capturedTr.querySelector('.oc-unit');
+                                    var totalInput = capturedTr.querySelector('.oc-total');
+                                    function getOcQtd() {
+                                        // Lazy cache: find the qtd input once it's in the DOM
+                                        var qtdEl = document.querySelector('.oc-qtd[data-item-idx="' + capturedItemIdx + '"]');
+                                        return qtdEl ? (parseFloat(qtdEl.value) || 1) : 1;
+                                    }
+                                    unitInput.addEventListener('input', function() {
+                                        var u = parseFloat(unitInput.value);
+                                        totalInput.value = (!isNaN(u) && u >= 0) ? (u * getOcQtd()).toFixed(2) : '';
+                                    });
+                                    totalInput.addEventListener('input', function() {
+                                        var t = parseFloat(totalInput.value);
+                                        var q = getOcQtd();
+                                        unitInput.value = (!isNaN(t) && t >= 0 && q > 0) ? (t / q).toFixed(2) : '';
+                                    });
+                                })(tr, itemIdx);
+
+                                rowIdx++;
+                            });
                         });
                         document.getElementById('ordemCompraLista').appendChild(ocFrag);
+
+                        // When qty changes, recalc all rows for that item
+                        document.getElementById('ordemCompraLista').querySelectorAll('.oc-qtd').forEach(function(qtdEl) {
+                            var iIdx = parseInt(qtdEl.dataset.itemIdx, 10);
+                            qtdEl.addEventListener('input', function() {
+                                var q = parseFloat(qtdEl.value) || 1;
+                                document.getElementById('ordemCompraLista').querySelectorAll('tr[data-item-idx="' + iIdx + '"] .oc-unit').forEach(function(unitInput) {
+                                    var u = parseFloat(unitInput.value);
+                                    var totalInput = document.querySelector('.oc-total[data-row-idx="' + unitInput.dataset.rowIdx + '"]');
+                                    if (totalInput && !isNaN(u) && u >= 0) {
+                                        totalInput.value = (u * q).toFixed(2);
+                                    }
+                                });
+                            });
+                        });
                     }
                     document.getElementById('ordemCompraBtnGerar').disabled = false;
                 })
@@ -1826,23 +1899,39 @@
                 return;
             }
             var itensComValor = [];
-            ordemCompraItens.forEach(function (item, idx) {
-                var inputValor = document.querySelector('.oc-valor[data-idx="' + idx + '"]');
-                var radios = document.querySelectorAll('input[name="oc-tipo-' + idx + '"]');
-                var isUnit = true;
-                if (radios.length >= 2) isUnit = radios[0].checked;
-                var raw = (inputValor && inputValor.value) ? String(inputValor.value).trim().replace(/\s/g, '').replace(/\./g, '').replace(',', '.') : '';
-                var num = raw ? parseFloat(raw) : NaN;
-                if (isNaN(num) || num <= 0) return;
-                var inputQtd = document.querySelector('.oc-qtd[data-idx="' + idx + '"]');
+            document.querySelectorAll('#ordemCompraLista .oc-incluir:checked').forEach(function(cb) {
+                var itemIdx = parseInt(cb.dataset.itemIdx, 10);
+                var rowIdx = cb.dataset.rowIdx;
+                var proc = cb.dataset.proc || '';
+                if (isNaN(itemIdx) || itemIdx < 0 || itemIdx >= ordemCompraItens.length) return;
+                var item = ordemCompraItens[itemIdx];
+                var inputQtd = document.querySelector('.oc-qtd[data-item-idx="' + itemIdx + '"]');
                 var qtd = (inputQtd && inputQtd.value !== '') ? parseFloat(inputQtd.value) : item.quantidade;
                 if (isNaN(qtd) || qtd <= 0) qtd = item.quantidade || 0;
+                // Try unit input first (new), fall back to legacy oc-valor
+                var unitInput = document.querySelector('.oc-unit[data-row-idx="' + rowIdx + '"]');
+                var totalInput = document.querySelector('.oc-total[data-row-idx="' + rowIdx + '"]');
+                var valorUnit = NaN;
+                if (unitInput && unitInput.value.trim()) {
+                    valorUnit = parseFloat(String(unitInput.value).replace(',', '.'));
+                } else if (totalInput && totalInput.value.trim()) {
+                    var tot = parseFloat(String(totalInput.value).replace(',', '.'));
+                    if (!isNaN(tot) && qtd > 0) valorUnit = tot / qtd;
+                } else {
+                    // legacy fallback
+                    var legacyInput = document.querySelector('.oc-valor[data-row-idx="' + rowIdx + '"]');
+                    if (legacyInput && legacyInput.value.trim()) {
+                        valorUnit = parseFloat(String(legacyInput.value).replace(',', '.'));
+                    }
+                }
+                if (isNaN(valorUnit) || valorUnit <= 0) return;
                 itensComValor.push({
                     codigo: item.codigo,
                     descricao: item.descricao,
                     quantidade: qtd,
-                    valorUnitario: isUnit ? num : undefined,
-                    valorTotal: isUnit ? undefined : num
+                    processo: proc || undefined,
+                    processoNomeCompleto: (item.nomesProcessosCustom && proc && item.nomesProcessosCustom[proc]) ? item.nomesProcessosCustom[proc] : undefined,
+                    valorUnitario: valorUnit
                 });
             });
             if (itensComValor.length === 0) {

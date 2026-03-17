@@ -90,6 +90,12 @@ function getProdutosCadastrados() {
         if (row[14] && String(row[14]).trim().toUpperCase() === "X") processos.push("Pin");
         if (row[15] && String(row[15]).trim().toUpperCase() === "X") processos.push("CAD");
         if (row[16] && String(row[16]).trim().toUpperCase() === "X") processos.push("ACB");
+        var precosProcessos = {};
+        var siglasCols = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
+        for (var sp = 0; sp < siglasCols.length; sp++) {
+          var vp = parseFloat(row[18 + sp]);
+          if (!isNaN(vp) && vp > 0) precosProcessos[siglasCols[sp]] = vp;
+        }
         produtos.push({
           codigo: row[0],                    // Coluna A - Código do Produto
           descricao: row[1] || "",           // Coluna B - Descrição do Produto
@@ -97,8 +103,10 @@ function getProdutosCadastrados() {
           codigoEAN: row[3] || "",           // Coluna D - Código EAN (GTIN)
           ncm: row[4] || "",                 // Coluna E - Código NCM
           preco: parseFloat(row[5]) || 0,    // Coluna F - Preço Unitário de Venda
-          unidade: row[6] || "UN",            // Coluna G - Unidade
-          processos: processos               // Colunas K-O (MP, CL, D, S, Pin)
+          unidade: row[6] || "UN",           // Coluna G - Unidade
+          processos: processos,              // Colunas K-Q (MP, CL, D, S, Pin, CAD, ACB)
+          pecasPorChapa: row[17] ? parseFloat(row[17]) || "" : "", // Coluna R
+          precosProcessos: precosProcessos   // Colunas S-Y
         });
       }
     }
@@ -210,6 +218,8 @@ function inserirProdutoNaRelacao(produto) {
     // A=Código do Produto, B=Descrição do Produto, C=Código da Família, D=Código EAN (GTIN), 
     // E=Código NCM, F=Preço Unitário de Venda, G=Unidade, H=Características, I=Projeto, J=Cliente
     // K=MP, L=CL, M=D, N=S, O=Pin, P=CAD, Q=ACB (processos: X ou vazio)
+    // R=PEÇAS POR CHAPA, S=PREÇO MP, T=PREÇO CL, U=PREÇO D, V=PREÇO S, W=PREÇO Pin, X=PREÇO CAD, Y=PREÇO ACB
+    var precosRel = produto.precosProcessos && typeof produto.precosProcessos === "object" ? produto.precosProcessos : {};
     const novaLinha = [
       produto.codigo || "",           // A - Código do Produto
       produto.descricao || "",        // B - Descrição do Produto
@@ -227,7 +237,15 @@ function inserirProdutoNaRelacao(produto) {
       temProc("S") ? "X" : "",        // N - S
       temProc("Pin") ? "X" : "",      // O - Pin
       temProc("CAD") ? "X" : "",      // P - CAD
-      temProc("ACB") ? "X" : ""       // Q - ACB
+      temProc("ACB") ? "X" : "",      // Q - ACB
+      produto.pecasPorChapa != null && produto.pecasPorChapa !== "" ? produto.pecasPorChapa : "", // R - Peças por chapa
+      precosRel["MP"]  != null ? (parseFloat(precosRel["MP"])  || "") : "", // S - Preço MP
+      precosRel["CL"]  != null ? (parseFloat(precosRel["CL"])  || "") : "", // T - Preço CL
+      precosRel["D"]   != null ? (parseFloat(precosRel["D"])   || "") : "", // U - Preço D
+      precosRel["S"]   != null ? (parseFloat(precosRel["S"])   || "") : "", // V - Preço S
+      precosRel["Pin"] != null ? (parseFloat(precosRel["Pin"]) || "") : "", // W - Preço Pin
+      precosRel["CAD"] != null ? (parseFloat(precosRel["CAD"]) || "") : "", // X - Preço CAD
+      precosRel["ACB"] != null ? (parseFloat(precosRel["ACB"]) || "") : ""  // Y - Preço ACB
     ];
 
     var numCols = SHEET_PRODUTOS.getLastColumn();
@@ -287,17 +305,21 @@ function atualizarPRDNoCatalogo(dadosNovos) {
     }
 
     // Atualiza os dados na planilha em lote (1 read + 1 write)
-    // Estrutura: A=Código, B=Descrição, C=Código Família, D=EAN, E=NCM, F=Preço, G=Unidade, H=Características, I=Projeto, J=Cliente, K=MP, L=CL, M=D, N=S, O=Pin, P=CAD, Q=ACB
-    var numCols = Math.max(SHEET_PRODUTOS.getLastColumn(), 17);
+    // Estrutura: A=Código, B=Descrição, C=Família, D=EAN, E=NCM, F=Preço, G=Unidade, H=Características, I=Projeto, J=Cliente,
+    //            K=MP, L=CL, M=D, N=S, O=Pin, P=CAD, Q=ACB,  R=Peças por Chapa,  S=PrMP, T=PrCL, U=PrD, V=PrS, W=PrPin, X=PrCAD, Y=PrACB
+    var numCols = Math.max(SHEET_PRODUTOS.getLastColumn(), 25);
     var rowData = SHEET_PRODUTOS.getRange(linhaEncontrada, 1, 1, numCols).getValues()[0];
+    // Garante que rowData tem pelo menos 25 posições
+    while (rowData.length < 25) rowData.push("");
 
-    // Garante cabeçalhos de processos se a planilha tem menos de 17 colunas
+    // Garante cabeçalhos de processos se a planilha tem menos de 11 colunas
     if (SHEET_PRODUTOS.getLastColumn() < 11) {
       SHEET_PRODUTOS.getRange(1, 11, 1, 7).setValues([["MP", "CL", "D", "S", "Pin", "CAD", "ACB"]]);
     }
 
     var processosArr = dadosNovos.processos && Array.isArray(dadosNovos.processos) ? dadosNovos.processos : [];
     function temP(sigla) { return processosArr.indexOf(sigla) >= 0; }
+    var precosNovos = dadosNovos.precosProcessos && typeof dadosNovos.precosProcessos === "object" ? dadosNovos.precosProcessos : {};
 
     rowData[1]  = dadosNovos.descricao || "";    // B - Descrição
     rowData[4]  = dadosNovos.ncm || "";          // E - NCM
@@ -310,6 +332,14 @@ function atualizarPRDNoCatalogo(dadosNovos) {
     rowData[14] = temP("Pin") ? "X" : "";        // O - Pin
     rowData[15] = temP("CAD") ? "X" : "";        // P - CAD
     rowData[16] = temP("ACB") ? "X" : "";        // Q - ACB
+    rowData[17] = dadosNovos.pecasPorChapa != null && dadosNovos.pecasPorChapa !== "" ? dadosNovos.pecasPorChapa : (rowData[17] || ""); // R
+    var siglasCols2 = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
+    for (var sc = 0; sc < siglasCols2.length; sc++) {
+      var sigla2 = siglasCols2[sc];
+      if (precosNovos[sigla2] != null && precosNovos[sigla2] !== "") {
+        rowData[18 + sc] = parseFloat(precosNovos[sigla2]) || "";
+      }
+    }
 
     SHEET_PRODUTOS.getRange(linhaEncontrada, 1, 1, numCols).setValues([rowData]);
     SheetCache.invalidate(SHEET_PRODUTOS);
@@ -1694,10 +1724,12 @@ function gerarPdfOrdemProducao(linhaOuKey) {
           codigo: prod.codigo || "",
           descricao: prod.descricao || "",
           quantidade: prod.quantidade || 0,
+          pecasPorChapa: prod.pecasPorChapa != null ? prod.pecasPorChapa : "",
           precoUnitario: 0,
           precoTotal: 0,
           processos: prod.processos && Array.isArray(prod.processos) ? prod.processos : [],
-          descricoesProcessos: prod.descricoesProcessos && typeof prod.descricoesProcessos === 'object' ? prod.descricoesProcessos : {}
+          descricoesProcessos: prod.descricoesProcessos && typeof prod.descricoesProcessos === 'object' ? prod.descricoesProcessos : {},
+          nomesProcessosCustom: prod.nomesProcessosCustom && typeof prod.nomesProcessosCustom === 'object' ? prod.nomesProcessosCustom : {}
         });
       });
     }
@@ -1723,17 +1755,33 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     const headerColor = "#FF9933";
     const rowColor = "#FDF5E6";
 
-    var todosProcessosOp = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
+    var todosProcessosPadrao = ["MP", "CL", "D", "S", "Pin", "CAD", "ACB"];
     var processosPresentes = [];
+    // Build merged custom-names map from all products
+    var nomesProcessosCustomMerged = {};
     resultados.forEach(function (p) {
+      if (p.nomesProcessosCustom) {
+        Object.keys(p.nomesProcessosCustom).forEach(function(k) {
+          if (!nomesProcessosCustomMerged[k]) nomesProcessosCustomMerged[k] = p.nomesProcessosCustom[k];
+        });
+      }
       var arr = p.processos;
       if (arr && Array.isArray(arr)) {
         arr.forEach(function (sigla) {
-          if (todosProcessosOp.indexOf(sigla) >= 0 && processosPresentes.indexOf(sigla) < 0) {
+          if (processosPresentes.indexOf(sigla) < 0) {
             processosPresentes.push(sigla);
           }
         });
       }
+    });
+    // Sort: standard processes first in canonical order, then custom alphabetically
+    processosPresentes.sort(function(a, b) {
+      var ia = todosProcessosPadrao.indexOf(a);
+      var ib = todosProcessosPadrao.indexOf(b);
+      if (ia === -1) ia = todosProcessosPadrao.length;
+      if (ib === -1) ib = todosProcessosPadrao.length;
+      if (ia !== ib) return ia - ib;
+      return a < b ? -1 : (a > b ? 1 : 0);
     });
 
     function temProcessoOp(p, sigla) {
@@ -1760,6 +1808,7 @@ function gerarPdfOrdemProducao(linhaOuKey) {
         + '<tr>'
         + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + _escHtml(p.codigo || "") + '</td>'
         + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; font-size:8pt;">' + _escHtml(p.descricao || "") + descProcsHtml + '</td>'
+        + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;">' + _escHtml(p.pecasPorChapa != null && p.pecasPorChapa !== "" ? p.pecasPorChapa : "-") + '</td>'
         + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;">' + _escHtml(p.quantidade || 0) + '</td>'
         + cellsProc
         + '</tr>';
@@ -1782,7 +1831,7 @@ function gerarPdfOrdemProducao(linhaOuKey) {
     var legendaProcessosHtml = "";
     if (processosPresentes.length > 0) {
       var linhasLegenda = processosPresentes.map(function (sigla) {
-        var desc = PROCESSOS_DESCRICOES[sigla] || sigla;
+        var desc = PROCESSOS_DESCRICOES[sigla] || nomesProcessosCustomMerged[sigla] || sigla;
         return '<tr>'
           + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:4px; border:0.1px solid #fff; font-size:9pt; font-weight:bold; text-align:center; width:60px;">' + sigla + '</td>'
           + '<td bgcolor="' + rowColor + '" style="background:' + rowColor + '; padding:4px; border:0.1px solid #fff; font-size:9pt;">' + desc + '</td>'
@@ -1847,7 +1896,8 @@ function gerarPdfOrdemProducao(linhaOuKey) {
           <tr>
             <th bgcolor="${headerColor}" style="background:${headerColor}; color:#ffffff; padding:3px; text-align:left; border:0.1px solid #fff; font-size:8pt;">Código</th>
             <th bgcolor="${headerColor}" style="background:${headerColor}; color:#ffffff; padding:3px; text-align:left; border:0.1px solid #fff; font-size:8pt;">Descrição</th>
-            <th bgcolor="${headerColor}" style="background:${headerColor}; color:#ffffff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;">Quantidade</th>
+            <th bgcolor="${headerColor}" style="background:${headerColor}; color:#ffffff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;">Peças/Chapa</th>
+            <th bgcolor="${headerColor}" style="background:${headerColor}; color:#ffffff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;">QTDE</th>
             ${headerProcessosHtml}
           </tr>
           ${itensHtml}
@@ -1928,7 +1978,10 @@ function getItensProjetoParaOrdemCompra(linhaOuKey) {
       return {
         codigo: p.codigo || "",
         descricao: p.descricao || "",
-        quantidade: parseFloat(p.quantidade) || 0
+        quantidade: parseFloat(p.quantidade) || 0,
+        processos: p.processos && Array.isArray(p.processos) ? p.processos : [],
+        precosProcessos: p.precosProcessos && typeof p.precosProcessos === "object" ? p.precosProcessos : {},
+        nomesProcessosCustom: p.nomesProcessosCustom && typeof p.nomesProcessosCustom === "object" ? p.nomesProcessosCustom : {}
       };
     });
     return { itens: itens, codigoProjeto: codigoProjeto };
@@ -1992,10 +2045,12 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       var vt = parseFloat(p.valorTotal);
       if (isNaN(vu) || vu <= 0) vu = (qtd > 0 && !isNaN(vt) && vt > 0) ? vt / qtd : 0;
       if (isNaN(vt) || vt <= 0) vt = vu * qtd;
+      var processoCell = p.processo ? _escHtml(p.processoNomeCompleto ? p.processo + ' — ' + p.processoNomeCompleto : p.processo) : "-";
       return (
         "<tr>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + _escHtml(p.codigo || "") + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; font-size:8pt;\">" + _escHtml(p.descricao || "") + "</td>" +
+        "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;\">" + processoCell + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:center; font-size:8pt;\">" + _escHtml(qtd) + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:right; font-size:8pt;\">R$ " + formatarMoeda(vu) + "</td>" +
         "<td bgcolor=\"" + rowColor + "\" style=\"background:" + rowColor + "; padding:2px; border:0.1px solid #fff; text-align:right; font-size:8pt;\">R$ " + formatarMoeda(vt) + "</td>" +
@@ -2030,7 +2085,8 @@ function gerarPdfOrdemCompra(linhaOuKey, itensComValor, fornecedor) {
       "<tr>" +
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:left; border:0.1px solid #fff; font-size:8pt;\">Código</th>" +
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:left; border:0.1px solid #fff; font-size:8pt;\">Descrição</th>" +
-      "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;\">Quantidade</th>" +
+      "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;\">Processo</th>" +
+      "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:center; border:0.1px solid #fff; font-size:8pt;\">QTDE</th>" +
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:right; border:0.1px solid #fff; font-size:8pt;\">Valor Unitário</th>" +
       "<th bgcolor=\"" + headerColor + "\" style=\"background:" + headerColor + "; color:#fff; padding:3px; text-align:right; border:0.1px solid #fff; font-size:8pt;\">Valor Total</th>" +
       "</tr>" + linhas + "</table>" +
@@ -2110,9 +2166,14 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
       });
     }
   });
-  // Ordena na ordem padrão
+  // Ordena na ordem padrão; processos customizados vão ao final (alfabeticamente)
   todosProcessos.sort(function(a, b) {
-    return ordemProcessos.indexOf(a) - ordemProcessos.indexOf(b);
+    var ia = ordemProcessos.indexOf(a);
+    var ib = ordemProcessos.indexOf(b);
+    if (ia === -1) ia = ordemProcessos.length;
+    if (ib === -1) ib = ordemProcessos.length;
+    if (ia !== ib) return ia - ib;
+    return a < b ? -1 : (a > b ? 1 : 0);
   });
   // Se o usuário digitou algo manual no campo obsProcessos, usa isso; senão usa a união dos itens
   const processosManual = (observacoes && observacoes.processos) ? String(observacoes.processos).trim() : "";
@@ -2383,7 +2444,9 @@ function registrarOrcamento(cliente, codigoProjeto, valorTotal, dataOrcamento, u
             caracteristicas: (prod.descricoesProcessos && typeof prod.descricoesProcessos === "object") ? JSON.stringify(prod.descricoesProcessos) : "",
             projeto: codigoProjeto || "",
             cliente: cliente.nome || "",
-            processos: prod.processos && Array.isArray(prod.processos) ? prod.processos : []
+            processos: prod.processos && Array.isArray(prod.processos) ? prod.processos : [],
+            pecasPorChapa: prod.pecasPorChapa != null ? prod.pecasPorChapa : "",
+            precosProcessos: prod.precosProcessos && typeof prod.precosProcessos === "object" ? prod.precosProcessos : {}
           };
           inserirProdutoNaRelacao(produtoRelacao);
         }

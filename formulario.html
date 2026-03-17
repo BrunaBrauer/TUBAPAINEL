@@ -929,6 +929,104 @@
             }
         }
 
+        /* ---------- HELPER: process price row setup ---------- */
+        function _setupProcPrecoRow(row, prodDiv) {
+            var tipoSel = row.querySelector('.preco-proc-tipo');
+            var unitInput = row.querySelector('.preco-proc-unit');
+            var totalInput = row.querySelector('.preco-proc-total');
+            if (!tipoSel || !unitInput || !totalInput) return;
+
+            function getQtd() {
+                return parseFloat((prodDiv.querySelector('.produtoQuantidade') || {}).value) || 1;
+            }
+
+            function applyTipoState() {
+                var isUnit = tipoSel.value === 'unit';
+                unitInput.readOnly = !isUnit;
+                unitInput.style.background = isUnit ? '#fff' : '#f1f8e9';
+                unitInput.style.borderColor = isUnit ? '#90caf9' : '#a5d6a7';
+                totalInput.readOnly = isUnit;
+                totalInput.style.background = isUnit ? '#f1f8e9' : '#fff';
+                totalInput.style.borderColor = isUnit ? '#a5d6a7' : '#90caf9';
+            }
+
+            function recalcFromUnit() {
+                var u = parseFloat(unitInput.value);
+                totalInput.value = (!isNaN(u) && u >= 0) ? (u * getQtd()).toFixed(2) : '';
+            }
+
+            function recalcFromTotal() {
+                var t = parseFloat(totalInput.value);
+                var q = getQtd();
+                unitInput.value = (!isNaN(t) && t >= 0 && q > 0) ? (t / q).toFixed(2) : '';
+            }
+
+            tipoSel.addEventListener('change', function () {
+                applyTipoState();
+                if (tipoSel.value === 'unit' && unitInput.value) recalcFromUnit();
+                else if (tipoSel.value === 'total' && totalInput.value) recalcFromTotal();
+            });
+
+            unitInput.addEventListener('input', function () {
+                if (tipoSel.value === 'unit') recalcFromUnit();
+            });
+
+            totalInput.addEventListener('input', function () {
+                if (tipoSel.value === 'total') recalcFromTotal();
+            });
+
+            applyTipoState();
+
+            row._recalcProcPreco = function () {
+                if (tipoSel.value === 'unit' && unitInput.value !== '') recalcFromUnit();
+                else if (tipoSel.value === 'total' && totalInput.value !== '') recalcFromTotal();
+            };
+        }
+
+        function _addOutroProcessoAoProduto(prodDiv, inicial) {
+            var container = prodDiv.querySelector(".produtoOutrosProcessos");
+            if (!container) return;
+            var row = document.createElement("div");
+            row.className = "outro-proc-row";
+            row.style.cssText = "display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; padding:5px 8px; background:#fff8e1; border-radius:4px; border:1px solid #ffcc80;";
+            row.innerHTML = '<input type="text" class="outro-proc-sigla" placeholder="Sigla (ex: GL)" title="Abreviação do processo" style="width:72px; flex-shrink:0; padding:4px 8px; border:2px solid #ff8f00; border-radius:4px; font-size:13px; font-weight:700; text-transform:uppercase;">'
+                + '<input type="text" class="outro-proc-nome" placeholder="Nome por extenso (ex: Galvanização)" title="Nome completo do processo" style="min-width:140px; flex:1; padding:4px 8px; border:1px solid #ffcc80; border-radius:4px; font-size:13px;">'
+                + '<input type="text" class="outro-proc-desc" placeholder="Descrição..." style="flex:2; min-width:100px; padding:4px 8px; border:1px solid #ffcc80; border-radius:4px; font-size:12px;">'
+                + '<select class="preco-proc-tipo" style="padding:4px 6px; border:1px solid #ffcc80; border-radius:4px; font-size:12px;">'
+                + '<option value="unit">R$ Unit.</option><option value="total">R$ Total</option></select>'
+                + '<input type="number" step="0.01" min="0" class="preco-proc-unit" placeholder="unit." style="width:80px; padding:4px 8px; border:1px solid #ffcc80; border-radius:4px;">'
+                + '<input type="number" step="0.01" min="0" class="preco-proc-total" placeholder="total" style="width:80px; padding:4px 8px; border:1px solid #a5d6a7; border-radius:4px;">'
+                + '<button type="button" onclick="this.parentElement.remove()" style="background:#ffebee; color:#c62828; border:1px solid #ef9a9a; border-radius:4px; padding:3px 8px; font-size:13px; cursor:pointer;">✕</button>';
+            // Auto-uppercase sigla as user types
+            var siglaEl = row.querySelector('.outro-proc-sigla');
+            siglaEl.addEventListener('input', function() { this.value = this.value.toUpperCase().replace(/\s/g, ''); });
+            container.appendChild(row);
+            if (inicial) {
+                // New format: sigla + nomeCompleto; legacy format: nome was the full name
+                if (inicial.sigla) siglaEl.value = inicial.sigla;
+                else if (inicial.nome && !inicial.nomeCompleto) {
+                    // Legacy: derive sigla from first letters of non-empty name words (best-effort)
+                    siglaEl.value = inicial.nome.split(/\s+/).filter(function(w) { return w.length > 0; }).map(function(w) { return w[0]; }).join('').toUpperCase().substring(0, 5);
+                }
+                var nomeEl = row.querySelector('.outro-proc-nome');
+                if (inicial.nomeCompleto) nomeEl.value = inicial.nomeCompleto;
+                else if (inicial.nome) nomeEl.value = inicial.nome;
+                if (inicial.descricao) row.querySelector('.outro-proc-desc').value = inicial.descricao;
+                var tipoSel = row.querySelector('.preco-proc-tipo');
+                if (inicial.tipoPreco) tipoSel.value = inicial.tipoPreco;
+                var unitInput = row.querySelector('.preco-proc-unit');
+                var totalInput = row.querySelector('.preco-proc-total');
+                if (inicial.precoUnitario != null && inicial.precoUnitario !== '') {
+                    unitInput.value = Number(inicial.precoUnitario).toFixed(2);
+                }
+                if (inicial.tipoPreco === 'total' && inicial.precoTotal != null && inicial.precoTotal !== '') {
+                    totalInput.value = Number(inicial.precoTotal).toFixed(2);
+                }
+            }
+            _setupProcPrecoRow(row, prodDiv);
+            return row;
+        }
+
         /* ---------- PRODUTOS CADASTRADOS ---------- */
         let produtosCatalogo = [];
 
@@ -1040,6 +1138,10 @@
                         <label>Preço Total (R$):</label>
                         <input type="number" step="0.01" class="produtoPrecoTotal" readonly style="background:#e8f5e9; font-weight:600;">
                     </div>
+                    <div class="col" style="flex:0 0 160px;">
+                        <label>Peças por chapa:</label>
+                        <input type="number" step="1" min="0" class="produtoPecasPorChapa" placeholder="Ex: 4" style="font-weight:600;">
+                    </div>
                 </div>
                 
                 <div class="row" style="margin-top:8px;">
@@ -1056,6 +1158,11 @@
                             <label class="proc-item" style="display:inline-block; margin-right:12px; margin-bottom:4px;"><input type="checkbox" class="produtoProcesso" value="ACB"> ACB - Acabamento</label>
                             <!-- RF002: Campos de descrição por processo (gerados dinamicamente) -->
                             <div class="produtoDescricoesProcessos" style="margin-top:10px;"></div>
+                            <!-- Outros processos personalizados -->
+                            <div style="margin-top:8px; border-top:1px dashed #90caf9; padding-top:8px;">
+                                <button type="button" class="produtoBtnAddOutro" style="background:#fff3e0; color:#e65100; border:1px solid #ffb74d; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;">➕ Outro Processo</button>
+                                <div class="produtoOutrosProcessos" style="margin-top:6px;"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1078,6 +1185,10 @@
             const qtdInput = div.querySelector(".produtoQuantidade");
             qtdInput.addEventListener("input", function () {
                 calcularTotalProduto(div);
+                // Recalculate all process row prices when qty changes
+                div.querySelectorAll('.desc-proc-row, .outro-proc-row').forEach(function (row) {
+                    if (typeof row._recalcProcPreco === 'function') row._recalcProcPreco();
+                });
             });
 
             // Adiciona listener para atualizar total quando preço unitário mudar
@@ -1112,16 +1223,30 @@
                         var row = document.createElement("div");
                         row.className = "desc-proc-row";
                         row.dataset.sigla = sigla;
-                        row.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:6px;";
-                        row.innerHTML = '<label style="min-width:160px; font-size:13px; color:#333;"><strong>' + sigla + '</strong> - ' + (_NOMES_PROCESSOS[sigla] || sigla) + ':</label>'
-                            + '<input type="text" class="desc-proc-input" placeholder="Ex: 2h, 3 chapas 1000x500..." style="flex:1; padding:4px 8px; border:1px solid #90caf9; border-radius:4px;">';
+                        row.style.cssText = "display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; padding:5px 8px; background:#f0f8ff; border-radius:4px;";
+                        row.innerHTML = '<label style="min-width:150px; font-size:13px; color:#333;"><strong>' + sigla + '</strong> - ' + (_NOMES_PROCESSOS[sigla] || sigla) + ':</label>'
+                            + '<input type="text" class="desc-proc-input" placeholder="Descrição do processo..." style="flex:1; min-width:100px; padding:4px 8px; border:1px solid #90caf9; border-radius:4px;">'
+                            + '<select class="preco-proc-tipo" style="padding:4px 6px; border:1px solid #90caf9; border-radius:4px; font-size:12px;">'
+                            + '<option value="unit">R$ Unit.</option><option value="total">R$ Total</option></select>'
+                            + '<input type="number" step="0.01" min="0" class="preco-proc-unit" placeholder="unit." style="width:80px; padding:4px 8px; border:1px solid #90caf9; border-radius:4px;">'
+                            + '<input type="number" step="0.01" min="0" class="preco-proc-total" placeholder="total" style="width:80px; padding:4px 8px; border:1px solid #a5d6a7; border-radius:4px;">';
                         container.appendChild(row);
+                        _setupProcPrecoRow(row, div);
                     }
                 });
             }
+            div._atualizarDescricoesProcessos = atualizarDescricoesProcessos;
             div.querySelectorAll(".produtoProcesso").forEach(function (cb) {
                 cb.addEventListener("change", atualizarDescricoesProcessos);
             });
+
+            // Botão "Outro Processo"
+            var btnAddOutro = div.querySelector(".produtoBtnAddOutro");
+            if (btnAddOutro) {
+                btnAddOutro.addEventListener("click", function () {
+                    _addOutroProcessoAoProduto(div);
+                });
+            }
 
             // Campo de busca integrado que filtra produtos por código ou descrição
             const buscaInput = div.querySelector(".produtoBusca");
@@ -1312,6 +1437,8 @@
             div.querySelector(".produtoPrecoUnit").value = produto.preco ? Number(produto.preco).toFixed(2) : "";
             div.querySelector(".produtoUnidade").value = produto.unidade || "UN";
             div.querySelector(".produtoQuantidade").value = "1";
+            var pecasChapa = div.querySelector(".produtoPecasPorChapa");
+            if (pecasChapa) pecasChapa.value = produto.pecasPorChapa != null && produto.pecasPorChapa !== "" ? produto.pecasPorChapa : "";
             var processos = produto.processos || [];
             div.querySelectorAll(".produtoProcesso").forEach(cb => {
                 cb.checked = processos.indexOf(cb.value) >= 0;
@@ -1322,6 +1449,28 @@
                 boxProcessos.style.display = "block";
                 btnProcessos.textContent = "Ocultar Processos";
             }
+            // Trigger process description/price field update
+            if (typeof div._atualizarDescricoesProcessos === 'function') {
+                div._atualizarDescricoesProcessos();
+            } else {
+                var changeEvent = new Event("change");
+                div.querySelectorAll(".produtoProcesso").forEach(function(cb) { cb.dispatchEvent(changeEvent); });
+            }
+            // Set precosProcessos from catalog (rows are now created synchronously above)
+            var precosDosCat = produto.precosProcessos || {};
+            div.querySelectorAll(".desc-proc-row").forEach(function(row) {
+                var sigla = row.dataset.sigla;
+                var precoInput = row.querySelector(".preco-proc-unit") || row.querySelector(".preco-proc-input");
+                if (sigla && precoInput && precosDosCat[sigla] != null && precosDosCat[sigla] !== "") {
+                    precoInput.value = Number(precosDosCat[sigla]).toFixed(2);
+                    if (row._recalcProcPreco) row._recalcProcPreco();
+                }
+            });
+            // Restore outrosProcessos from catalog
+            var outrosCat = produto.outrosProcessos || [];
+            var outrosContainer = div.querySelector(".produtoOutrosProcessos");
+            if (outrosContainer) outrosContainer.innerHTML = "";
+            outrosCat.forEach(function(o) { _addOutroProcessoAoProduto(div, o); });
             calcularTotalProduto(div);
         }
 
@@ -1362,13 +1511,48 @@
 
             const processos = [];
             (div.querySelectorAll(".produtoProcesso:checked") || []).forEach(cb => { if (cb.value) processos.push(cb.value); });
+            const precosProcessos = {};
+            div.querySelectorAll(".desc-proc-row").forEach(function(row) {
+                var sigla = row.dataset.sigla;
+                var precoInput = row.querySelector(".preco-proc-unit") || row.querySelector(".preco-proc-input");
+                if (sigla && precoInput && precoInput.value.trim()) {
+                    var val = parseFloat(precoInput.value);
+                    if (!isNaN(val) && val > 0) precosProcessos[sigla] = val;
+                }
+            });
+            // Collect custom processes for catalog
+            const outrosProcessos = [];
+            const nomesProcessosCustom = {};
+            div.querySelectorAll(".outro-proc-row").forEach(function(row) {
+                var siglaEl = row.querySelector(".outro-proc-sigla");
+                var sigla = siglaEl ? (siglaEl.value || "").trim().replace(/\s/g, '').toUpperCase() : "";
+                if (!sigla) return;
+                var nomeEl = row.querySelector(".outro-proc-nome");
+                var nomeCompleto = nomeEl ? (nomeEl.value || "").trim() : "";
+                var desc = ((row.querySelector(".outro-proc-desc") || {}).value || "").trim();
+                var tipoSel = row.querySelector(".preco-proc-tipo");
+                var tipoPreco = tipoSel ? tipoSel.value : "unit";
+                var unitEl = row.querySelector(".preco-proc-unit");
+                var totalEl = row.querySelector(".preco-proc-total");
+                var precoUnitario = unitEl ? (parseFloat(unitEl.value) || 0) : 0;
+                var precoTotal = totalEl ? (parseFloat(totalEl.value) || 0) : 0;
+                outrosProcessos.push({ sigla: sigla, nomeCompleto: nomeCompleto, descricao: desc, tipoPreco: tipoPreco, precoUnitario: precoUnitario, precoTotal: precoTotal });
+                if (processos.indexOf(sigla) < 0) processos.push(sigla);
+                if (precoUnitario > 0) precosProcessos[sigla] = precoUnitario;
+                nomesProcessosCustom[sigla] = nomeCompleto || sigla;
+            });
+            const pecasPorChapaEl = div.querySelector(".produtoPecasPorChapa");
             const dadosProduto = {
                 codigo: codigo,
                 descricao: descricao,
                 ncm: ncm,
                 unidade: unidade,
                 preco: precoUnitario,
-                processos: processos
+                processos: processos,
+                pecasPorChapa: pecasPorChapaEl && pecasPorChapaEl.value.trim() !== "" ? parseFloat(pecasPorChapaEl.value) : "",
+                precosProcessos: precosProcessos,
+                outrosProcessos: outrosProcessos,
+                nomesProcessosCustom: nomesProcessosCustom
             };
 
             google.script.run
@@ -1407,13 +1591,47 @@
 
                 // RF002: Coletar descrições por processo
                 const descricoesProcessos = {};
+                const precosProcessos = {};
                 div.querySelectorAll(".desc-proc-row").forEach(function (row) {
                     var sigla = row.dataset.sigla;
                     var input = row.querySelector(".desc-proc-input");
                     if (sigla && input && input.value.trim()) {
                         descricoesProcessos[sigla] = input.value.trim();
                     }
+                    // Support new preco-proc-unit or legacy preco-proc-input
+                    var precoInput = row.querySelector(".preco-proc-unit") || row.querySelector(".preco-proc-input");
+                    if (sigla && precoInput && precoInput.value.trim()) {
+                        var val = parseFloat(precoInput.value);
+                        if (!isNaN(val) && val > 0) precosProcessos[sigla] = val;
+                    }
                 });
+
+                // Coletar "Outros" processos personalizados e mesclar nos arrays padrão
+                const outrosProcessos = [];
+                const nomesProcessosCustom = {};
+                div.querySelectorAll(".outro-proc-row").forEach(function (row) {
+                    var siglaEl = row.querySelector(".outro-proc-sigla");
+                    var sigla = siglaEl ? (siglaEl.value || "").trim().replace(/\s/g, '').toUpperCase() : "";
+                    if (!sigla) return;
+                    var nomeEl = row.querySelector(".outro-proc-nome");
+                    var nomeCompleto = nomeEl ? (nomeEl.value || "").trim() : "";
+                    var desc = ((row.querySelector(".outro-proc-desc") || {}).value || "").trim();
+                    var tipoSel = row.querySelector(".preco-proc-tipo");
+                    var tipoPreco = tipoSel ? tipoSel.value : "unit";
+                    var unitEl = row.querySelector(".preco-proc-unit");
+                    var totalEl = row.querySelector(".preco-proc-total");
+                    var precoUnitario = unitEl ? (parseFloat(unitEl.value) || 0) : 0;
+                    var precoTotal = totalEl ? (parseFloat(totalEl.value) || 0) : 0;
+                    outrosProcessos.push({ sigla: sigla, nomeCompleto: nomeCompleto, descricao: desc, tipoPreco: tipoPreco, precoUnitario: precoUnitario, precoTotal: precoTotal });
+                    // Merge into standard process arrays so all existing code handles them
+                    if (processos.indexOf(sigla) < 0) processos.push(sigla);
+                    if (desc) descricoesProcessos[sigla] = desc;
+                    if (precoUnitario > 0) precosProcessos[sigla] = precoUnitario;
+                    nomesProcessosCustom[sigla] = nomeCompleto || sigla;
+                });
+
+                const pecasPorChapaEl = div.querySelector(".produtoPecasPorChapa");
+                const pecasPorChapa = pecasPorChapaEl && pecasPorChapaEl.value.trim() !== "" ? parseFloat(pecasPorChapaEl.value) : "";
 
                 produtos.push({
                     codigo: codigo || "",
@@ -1423,8 +1641,12 @@
                     precoUnitario: precoUnitario,
                     quantidade: quantidade,
                     precoTotal: precoTotal,
+                    pecasPorChapa: pecasPorChapa,
                     processos: processos,
-                    descricoesProcessos: descricoesProcessos
+                    descricoesProcessos: descricoesProcessos,
+                    precosProcessos: precosProcessos,
+                    outrosProcessos: outrosProcessos,
+                    nomesProcessosCustom: nomesProcessosCustom
                 });
             });
             return produtos;
@@ -1989,6 +2211,9 @@
                     prodDiv.querySelector(".produtoUnidade").value = prodData.unidade || "UN";
                     prodDiv.querySelector(".produtoPrecoUnit").value = prodData.precoUnitario || "";
                     prodDiv.querySelector(".produtoQuantidade").value = prodData.quantidade || 1;
+                    // Peças por chapa
+                    var pecasEl = prodDiv.querySelector(".produtoPecasPorChapa");
+                    if (pecasEl) pecasEl.value = prodData.pecasPorChapa != null && prodData.pecasPorChapa !== "" ? prodData.pecasPorChapa : "";
                     // Processos do item (MP, CL, D, S, Pin)
                     const processos = prodData.processos || [];
                     prodDiv.querySelectorAll(".produtoProcesso").forEach(cb => {
@@ -2001,28 +2226,29 @@
                         btnProcessos.textContent = "Ocultar Processos";
                     }
                     // RF002: Atualizar campos de descrição e preencher valores salvos
+                    if (typeof prodDiv._atualizarDescricoesProcessos === 'function') {
+                        prodDiv._atualizarDescricoesProcessos();
+                    }
                     var descContnr = prodDiv.querySelector(".produtoDescricoesProcessos");
                     if (descContnr) {
-                        // Dispara a atualização para criar os campos de descrição
-                        processos.forEach(function (sigla) {
-                            if (!descContnr.querySelector('.desc-proc-row[data-sigla="' + sigla + '"]')) {
-                                var row = document.createElement("div");
-                                row.className = "desc-proc-row";
-                                row.dataset.sigla = sigla;
-                                row.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:6px;";
-                                row.innerHTML = '<label style="min-width:160px; font-size:13px; color:#333;"><strong>' + sigla + '</strong> - ' + (_NOMES_PROCESSOS[sigla] || sigla) + ':</label>'
-                                    + '<input type="text" class="desc-proc-input" placeholder="Ex: 2h, 3 chapas 1000x500..." style="flex:1; padding:4px 8px; border:1px solid #90caf9; border-radius:4px;">';
-                                descContnr.appendChild(row);
-                            }
-                        });
-                        // Preencher descrições salvas
+                        // Preencher descrições e preços salvos
                         var descs = prodData.descricoesProcessos || {};
+                        var precos = prodData.precosProcessos || {};
                         descContnr.querySelectorAll(".desc-proc-row").forEach(function (row) {
                             var sigla = row.dataset.sigla;
                             var input = row.querySelector(".desc-proc-input");
                             if (sigla && input && descs[sigla]) input.value = descs[sigla];
+                            var precoInput = row.querySelector(".preco-proc-unit") || row.querySelector(".preco-proc-input");
+                            if (sigla && precoInput && precos[sigla] != null && precos[sigla] !== "") {
+                                precoInput.value = Number(precos[sigla]).toFixed(2);
+                                if (row._recalcProcPreco) row._recalcProcPreco();
+                            }
                         });
                     }
+                    // Restaurar "Outros" processos
+                    var outrosContainer = prodDiv.querySelector(".produtoOutrosProcessos");
+                    if (outrosContainer) outrosContainer.innerHTML = "";
+                    (prodData.outrosProcessos || []).forEach(function(o) { _addOutroProcessoAoProduto(prodDiv, o); });
                     calcularTotalProduto(prodDiv);
                 });
             }
