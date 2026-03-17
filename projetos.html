@@ -2031,18 +2031,20 @@
             });
         }
 
-        // Normaliza valor em formato BR para string numérica com ponto decimal (para salvar na planilha)
         function normalizarValorMoedaParaSalvar(value) {
             if (!value) return '';
+
             var s = String(value).trim();
             if (!s) return '';
+
             s = s.replace(/[^\d,.-]/g, '');
             s = s.replace(/\./g, '').replace(',', '.');
-            var num = parseFloat(s);
-            if (isNaN(num)) return String(value);
-            return num.toFixed(2);
-        }
 
+            var num = parseFloat(s);
+            if (isNaN(num)) return '';
+
+            return num.toFixed(2).replace('.', ',');
+        }
         function openInfoPedido(linha) {
             var modal = document.getElementById('infoPedidoModal');
             var tituloEl = document.getElementById('infoPedidoTitulo');
